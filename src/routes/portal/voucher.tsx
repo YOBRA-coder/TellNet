@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { redeemVoucherPortal } from "@/lib/fn/portal";
-import { getDeviceToken } from "@/lib/device";
+import { readDevice } from "@/lib/device";
 
 export const Route = createFileRoute("/portal/voucher")({
   component: VoucherRedeem,
@@ -24,7 +24,7 @@ function VoucherRedeem() {
     setOk(null);
     try {
       const res = await redeemVoucherPortal({
-        data: { code, phone, deviceToken: getDeviceToken() },
+        data: { code, phone, deviceToken: readDevice().token },
       });
       if (!res.ok) {
         setError(res.error || "Redeem failed");
