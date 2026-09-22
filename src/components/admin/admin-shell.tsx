@@ -19,7 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { UserButton } from "@/lib/auth/gates";
+import { OperatorUserButton } from "./operator-user-button";
 import { APP_NAME } from "@/lib/brand-copy";
 import { cn } from "@/lib/utils";
 
@@ -68,7 +68,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="mt-4 px-1">
-          <UserButton />
+          <OperatorUserButton />
         </div>
       </aside>
 
@@ -78,7 +78,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <TelNetMark className="size-6" />
             <span className="font-display font-semibold">{APP_NAME}</span>
           </Link>
-          <UserButton />
+         <OperatorUserButton />
         </header>
         <div className="flex-1 px-4 py-5 sm:px-6 lg:px-8">{children}</div>
         <nav className="sticky bottom-0 grid grid-cols-4 border-t border-border bg-surface/95 px-1 py-1 lg:hidden">
@@ -135,7 +135,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 </Link>
               );
             })}
+            <div className="col-span-2 border-t border-border pt-3">
+  <OperatorUserButton />
+</div>
           </nav>
+          
         </SheetContent>
       </Sheet>
     </div>

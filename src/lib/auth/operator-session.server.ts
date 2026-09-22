@@ -1,16 +1,22 @@
-import { getCookie, setCookie } from "@tanstack/react-start/server";
 import { SignJWT, jwtVerify } from "jose";
+import {
+  deleteCookie,
+  getCookie,
+  setCookie,
+} from "@tanstack/react-start/server";
 
 const COOKIE_NAME = "__Host-telnet-operator";
-const MAX_AGE = 60 * 60 * 12; // 12 hours
+const SESSION_DURATION_SECONDS = 60 * 60 * 8; // 8 hours
 
 function getSecret() {
   const secret =
     process.env.BETTER_AUTH_SECRET?.trim() ||
-    process.env.DATABASE_URL?.trim();
+    process.env.OPERATOR_SESSION_SECRET?.trim();
 
   if (!secret) {
-    throw new Error("No server secret configured for operator authentication.");
+    throw new Error(
+      "BETTER_AUTH_SECRET or OPERATOR_SESSION_SECRET must be configured",
+    );
   }
 
   return new TextEncoder().encode(secret);
@@ -22,7 +28,8 @@ export async function createOperatorSession() {
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(`${MAX_AGE}s`)
+    .setExpirationTime(`${SESSION_DURATION_SECONDS}s`)
+    .setSubject("operator")
     .sign(getSecret());
 
   setCookie(COOKIE_NAME, token, {
@@ -30,30 +37,28 @@ export async function createOperatorSession() {
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: MAX_AGE,
+    maxAge: SESSION_DURATION_SECONDS,
   });
 }
 
-export async function hasOperatorSession() {
+export async function hasOperatorSession(): Promise<boolean> {
   const token = getCookie(COOKIE_NAME);
 
   if (!token) return false;
 
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), {
+      algorithms: ["HS256"],
+    });
 
-    return payload.role === "operator";
+    return payload.sub === "operator" && payload.role === "operator";
   } catch {
     return false;
   }
 }
 
 export function clearOperatorSession() {
-  setCookie(COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
+  deleteCookie(COOKIE_NAME, {
     path: "/",
-    maxAge: 0,
   });
 }

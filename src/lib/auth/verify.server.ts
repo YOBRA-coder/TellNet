@@ -4,6 +4,43 @@ import { auth, authConfigured } from "./server";
 import { hasOperatorSession } from "./operator-session.server";
 
 /**
+ * Resolve the current user id for a server function, or throw when unauthorized.
+ * Prefer `authMiddleware` (`./middleware`), which calls this for you.
+ * - Auth enabled -> the verified session user id; throws
+ *   `UnauthorizedError` when signed out. Works in the sandbox preview too (real
+ *   sign-in via the baked preview client).
+ * - Auth disabled (`VITE_AUTH_ENABLED=false`) + `DATABASE_URL` set -> throw (fail
+ *   closed): one shared dev user on a real database would let every visitor
+ *   read/write everyone's rows.
+ * - Auth disabled + no database -> the shared dev user id.
+ */
+
+
+export async function requireUserId(bearerToken?: string): Promise<string> {
+  if (await hasOperatorSession()) {
+    return "operator";
+  }
+
+  if (!authConfigured && !gateIdentityEnabled()) {
+    if (databaseConfigured) {
+      throw new Error(
+        "Auth is disabled (VITE_AUTH_ENABLED=false) but DATABASE_URL is set — " +
+          "refusing to fall back to the shared dev user against a real database.",
+      );
+    }
+
+    return DEV_USER_ID;
+  }
+
+  const user = await getSessionUser(bearerToken);
+
+  if (!user) {
+    throw new UnauthorizedError();
+  }
+
+  return user.id;
+}
+/**
  * Server-side session resolution (server-only).
  *
  * Because this app runs its OWN Better Auth at same-origin `/api/auth/*`, the
@@ -71,38 +108,3 @@ export async function getSessionUser(
   return { id: session.user.id, email: session.user.email ?? null };
 }
 
-/**
- * Resolve the current user id for a server function, or throw when unauthorized.
- * Prefer `authMiddleware` (`./middleware`), which calls this for you.
- * - Auth enabled -> the verified session user id; throws
- *   `UnauthorizedError` when signed out. Works in the sandbox preview too (real
- *   sign-in via the baked preview client).
- * - Auth disabled (`VITE_AUTH_ENABLED=false`) + `DATABASE_URL` set -> throw (fail
- *   closed): one shared dev user on a real database would let every visitor
- *   read/write everyone's rows.
- * - Auth disabled + no database -> the shared dev user id.
- */
-export async function requireUserId(bearerToken?: string): Promise<string> {
-  if (await hasOperatorSession()) {
-    return "operator";
-  }
-
-  if (!authConfigured && !gateIdentityEnabled()) {
-    if (databaseConfigured) {
-      throw new Error(
-        "Auth is disabled (VITE_AUTH_ENABLED=false) but DATABASE_URL is set — " +
-          "refusing to fall back to the shared dev user against a real database.",
-      );
-    }
-
-    return DEV_USER_ID;
-  }
-
-  const user = await getSessionUser(bearerToken);
-
-  if (!user) {
-    throw new UnauthorizedError();
-  }
-
-  return user.id;
-}

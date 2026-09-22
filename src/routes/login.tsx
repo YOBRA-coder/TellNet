@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { APP_NAME } from "@/lib/brand-copy";
 import { loginOperator } from "@/lib/fn/public";
-import { markOperatorSession, useOperatorSession } from "@/lib/operator";
+import {  useOperatorSession } from "@/lib/operator";
 
 type Search = { redirect?: string };
 
@@ -47,7 +47,6 @@ function Login() {
         setError(res.error || "Incorrect password.");
         return;
       }
-      markOperatorSession();
       window.location.href = dest;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");

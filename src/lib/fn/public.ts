@@ -45,3 +45,14 @@ await createOperatorSession();
 
 return { ok: true as const };
   });
+
+export const logoutOperator = createServerFn({
+  method: "POST",
+}).handler(async () => {
+  const { clearOperatorSession } =
+    await import("@/lib/auth/operator-session.server");
+
+  clearOperatorSession();
+
+  return { ok: true as const };
+});
