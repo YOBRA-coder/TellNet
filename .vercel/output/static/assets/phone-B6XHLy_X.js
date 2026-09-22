@@ -1,0 +1,1 @@
+var e=/^(?:254|\+254|0)?([17]\d{8})$/;function t(t){let n=t.replace(/[^\d+]/g,``).trim().match(e);return n?`254${n[1]}`:null}function n(e){let n=t(e)??e.replace(/\D/g,``);return n.startsWith(`254`)&&n.length===12?`0${n.slice(3,6)} ${n.slice(6,9)} ${n.slice(9)}`:e}function r(e){return t(e)!==null}export{r as n,n as t};

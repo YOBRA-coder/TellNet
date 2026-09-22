@@ -1,0 +1,1 @@
+import{i as e,t}from"./react-DB-4Zxce.js";import{i as n,r}from"./device-C9t8VeCF.js";var i=e(t(),1);function a(){let[e,t]=(0,i.useState)(()=>typeof window>`u`?null:n());return{device:e,update:(0,i.useCallback)(e=>{t(r(e))},[]),ready:e!==null}}export{a as t};

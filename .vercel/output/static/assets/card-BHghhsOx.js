@@ -1,0 +1,1 @@
+import{t as e}from"./react-DB-4Zxce.js";import{t}from"./jsx-runtime-BtH0gOTJ.js";import{t as n}from"./utils-DOQQTBMN.js";e();var r=t();function i({className:e,...t}){return(0,r.jsx)(`div`,{className:n(`rounded-xl border border-border bg-surface text-fg shadow-lift`,e),...t})}export{i as t};
