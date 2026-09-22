@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: #09090b;
+  --color-surface: #111114;
+  --color-raised: #18181c;
+  --color-fg: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-subtle: #71717a;
+  --color-accent: #5eead4;
+  --color-accent-fg: #042f2e;
+  --color-cream: #f4f1ea;
+  --color-cream-fg: #14120b;
+  --color-border: #27272a;
+  --color-line: #1c1c20;
+  --color-mpesa: #1b9a4b;
+  --color-mpesa-fg: #ecfdf3;
+  --color-danger: #fb7185;
+  --color-warn: #fbbf24;
+  --color-ok: #34d399;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-2xl: 2rem;
+
+  --shadow-lift: 0 18px 50px -24px rgb(0 0 0 / 0.65);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 40%, transparent);
+    color: var(--color-fg);
+  }
+}
+
+@utility atmosphere {
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -10%, rgb(94 234 212 / 0.09), transparent 55%),
+    radial-gradient(ellipse 50% 30% at 100% 100%, rgb(244 241 234 / 0.04), transparent 50%),
+    linear-gradient(to right, rgb(244 244 245 / 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(244 244 245 / 0.028) 1px, transparent 1px);
+  background-size: auto, auto, 48px 48px, 48px 48px;
+}
+
+.radar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid rgb(94 234 212 / 0.22);
+  animation: radar 3.6s var(--ease, cubic-bezier(0.22, 1, 0.36, 1)) infinite;
+}
+
+@keyframes radar {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-ring {
+    animation: none;
+    opacity: 0.25;
+  }
+}
+
+
+/* Operator: snappy, responsive */
+@layer utilities {
+  .admin-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+@media (max-width: 640px) {
+  table {
+    font-size: 0.8rem;
+  }
+}
