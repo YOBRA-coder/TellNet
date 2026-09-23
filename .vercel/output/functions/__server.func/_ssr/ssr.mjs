@@ -156,7 +156,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-BwqUXJEO.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-2gse3V2V.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -178,15 +178,15 @@ async function getStartManifest(matchedRoutes) {
 var manifest = {
 	"00a9eec92f408b9e49b1e44cb4be477598bf23541ad89d34521c834c1eee9781": {
 		functionName: "listActivationQueue_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"053019b17bee865f6e03d878f77381970165b006cd991cd8b087499b0a479939": {
 		functionName: "retryPaymentActivation_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"0aa00b4dde7d21716291aff23be9c68390d72e97ea72df91c4cff9e895591e1a": {
 		functionName: "listPackagesAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"0bb0202c5534237aea04a3f6d2db2f3ffbcbefd32851485b5de39ba4261cce44": {
 		functionName: "getPortalCatalog_createServerFn_handler",
@@ -194,7 +194,7 @@ var manifest = {
 	},
 	"0cfa829a8431afd704ec928765eab5489763164a21868aa9b36916b21a4120e3": {
 		functionName: "customerAction_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"0d6c66c88ad6b73119dd7012d9d21072ba39ee82c3c9dd6450618b370dbe5de7": {
 		functionName: "startPayment_createServerFn_handler",
@@ -202,23 +202,23 @@ var manifest = {
 	},
 	"1368a8e49d0a00a23854511d76cd446f6977ce5669b600a59be0dade0bb3730a": {
 		functionName: "listSites_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"1b1a40f81e9ba1ba2acfa7ba26e0306cf366710bce8d4e726edd01803fbf7092": {
 		functionName: "setIspStatus_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"23709e74da8e72ad5f6b87487bdb5bcc52928bdfba64a4ed6f54c8338642a711": {
 		functionName: "getReports_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"244d425ccd23f160b70a11bc01b11b7ccae447761c845aed8cc8199b80bf9444": {
 		functionName: "getPublicHome_createServerFn_handler",
-		importer: () => import("./public-CBr8pjak.mjs")
+		importer: () => import("./public-B3QbTiwA.mjs")
 	},
 	"2cb326059439cd5f8563e5982fe7e033b61fb6dea396cc8609259e87cd2be6b7": {
 		functionName: "refreshMikroTiks_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"4b6437690822ecd493eecf8d15fb82646dc99b8bd5ad8f9c9d1f393916644573": {
 		functionName: "getPortalBootstrap_createServerFn_handler",
@@ -226,27 +226,31 @@ var manifest = {
 	},
 	"50dd5ab7f8968ad275666c1d98bab06fb3eda700cb3b09bf35b205971ef186bb": {
 		functionName: "testMikroTik_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"5fbf5d167a36e408e6bb975091d22bfe13c5c888f3f5f361307a241340ebf7fb": {
 		functionName: "saveSite_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"646be9f450386a7d3f62c477cf1a66df87cc474ba37495b39b475d26b63e7b77": {
 		functionName: "getDashboard_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"68c4bd0e128a2fc5ab0e6621d92988b9be7100f7e93aec88d18745222d60e0d3": {
 		functionName: "getSettingsAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"6ab8ca9a1374897bdf14ededa3501fe9028733feeb796563750de2449b927443": {
 		functionName: "setPrimaryMikroTik_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
+	},
+	"772500541de960e3beaf3d44e35d6833e6fb1cc36fa9be510bd398136ce156ad": {
+		functionName: "getOperatorSession_createServerFn_handler",
+		importer: () => import("./public-B3QbTiwA.mjs")
 	},
 	"84e12f121949828ed66a6b94905b4b97abf7f17b4c07f05d337405ab0ba17536": {
 		functionName: "saveSettingsAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"8d20a2a9ffe5954af479b246157120d1cfec7beb1e10512ef7ae10146f85c784": {
 		functionName: "connectActive_createServerFn_handler",
@@ -258,39 +262,39 @@ var manifest = {
 	},
 	"a63713b734e0332b914b934e1e9be33a35be504760990a6a022594b458cc62d9": {
 		functionName: "listLiveUsers_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"bfc7f3d612551c6299b5b46c06a50a69c754f42219484c0d3d49889383350cfe": {
 		functionName: "getNetwork_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"c01656b83d01987d607737a7921e4b66a4279e1051f4ec2445b7d7635e873168": {
 		functionName: "saveMikroTik_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"c25e087b6af86a9c203198818f135284ddb17b05a94cee458ca7158e4daee190": {
 		functionName: "logoutOperator_createServerFn_handler",
-		importer: () => import("./public-CBr8pjak.mjs")
+		importer: () => import("./public-B3QbTiwA.mjs")
 	},
 	"c58905778fbb9432f27496411f9a112498614b5201c03c06c2cdc0e68df208c1": {
 		functionName: "kickLiveUser_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"cb1556ebdf94fcb5b5cb409a8c68d5cbb288e501a1fe2f44d945eb4b08687c2b": {
 		functionName: "listPaymentsAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"d0e104f45636b19a235c0deb2bf9791f9f077f2bef101591bf290442349ed6b9": {
 		functionName: "saveIsp_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"d1bb05de66fb9a02c3c99e116b23ba73b97b5bd1ea47d197eaf31b52f8155753": {
 		functionName: "applyCamouflage_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"d234638b769edf6f3aebda6603b511772a934c60a8366af7b81535cfded01b33": {
 		functionName: "savePackage_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"da3c52133f84d72af6d108a241cb879a8af4ae9ff8d225df302be1c3e3830fe4": {
 		functionName: "recoverPackage_createServerFn_handler",
@@ -298,7 +302,7 @@ var manifest = {
 	},
 	"dc01274b892b81d8a0b7a37344a29da18507dc556042a42ca0758f90678761f3": {
 		functionName: "deleteMikroTik_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"dda9308387491e55fc8be35fa51b6b16df4ea4085efecd93f5bb945d7e6b278a": {
 		functionName: "listPortalPackages_createServerFn_handler",
@@ -310,27 +314,27 @@ var manifest = {
 	},
 	"e19f37623aa53560750af1d0aabed251851be09e9c044eb6ef3a30f0f1c89a48": {
 		functionName: "listVouchersAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"e4833d72042a0d0e5f832bfabf2f0f36dd0a50277d99ea104f961ccca9364a6c": {
 		functionName: "generateVouchersAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"ebe7a968b73484f01ea9af08ae0d7c06ff566c0113fa9cd13ce3a0d098c367be": {
 		functionName: "deletePackage_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"ed47b6b148ba58f88aec397663fce6e1e9c42c7b80b2b072d74cc5d7ffd0d08c": {
 		functionName: "deleteIsp_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"edbbd45ea9c1a537cda67df9248a3a2b0894d78ba052679524350d9d918fdfbf": {
 		functionName: "retryActivationAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"f1f61f798206618a2a3acb3b8fd4c106b729e496bb3ea9673d6639567606d826": {
 		functionName: "listCustomersAdmin_createServerFn_handler",
-		importer: () => import("./admin-DekYmqr7.mjs")
+		importer: () => import("./admin-Dvt280YA.mjs")
 	},
 	"f287903b5351366a758ac94a7e9c86d2345286f74634a6788428e82edd89d389": {
 		functionName: "redeemVoucherPortal_createServerFn_handler",
@@ -338,7 +342,7 @@ var manifest = {
 	},
 	"f3b99ec428423aa386239032ea6be5249734d42ceb72d5186f3dc9128938e576": {
 		functionName: "loginOperator_createServerFn_handler",
-		importer: () => import("./public-CBr8pjak.mjs")
+		importer: () => import("./public-B3QbTiwA.mjs")
 	}
 };
 async function getServerFnById(id, access) {
@@ -1732,7 +1736,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-B-2WsXvM.mjs").then((n) => n.t),
+		import("./router-COCXQSBe.mjs").then((n) => n.t),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

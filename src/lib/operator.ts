@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getOperatorSession } from "@/lib/fn/public";
 
 export function useOperatorSession() {
   const [isOperator, setIsOperator] = useState(false);
@@ -7,15 +8,20 @@ export function useOperatorSession() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/operator/session", {
-      credentials: "same-origin",
-    })
-      .then((res) => res.ok)
-      .catch(() => false)
-      .then((authenticated) => {
+    getOperatorSession()
+      .then((result) => {
         if (cancelled) return;
-        setIsOperator(authenticated);
+
+        setIsOperator(result.ok);
         setReady(true);
+      })
+      .catch((error) => {
+        console.error("[operator] session check failed:", error);
+
+        if (!cancelled) {
+          setIsOperator(false);
+          setReady(true);
+        }
       });
 
     return () => {

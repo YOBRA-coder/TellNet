@@ -78,7 +78,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <TelNetMark className="size-6" />
             <span className="font-display font-semibold">{APP_NAME}</span>
           </Link>
-         <OperatorUserButton />
+          <div className="ml-auto">
+    <OperatorUserButton />
+  </div>
         </header>
         <div className="flex-1 px-4 py-5 sm:px-6 lg:px-8">{children}</div>
         <nav className="sticky bottom-0 grid grid-cols-4 border-t border-border bg-surface/95 px-1 py-1 lg:hidden">

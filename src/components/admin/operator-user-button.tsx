@@ -12,9 +12,18 @@ export function OperatorUserButton() {
     setBusy(true);
 
     try {
-      await logoutOperator();
-      await navigate({ to: "/login" });
-    } catch {
+      const result = await logoutOperator();
+
+      if (!result.ok) {
+        throw new Error("Sign-out failed");
+      }
+
+      await navigate({
+        to: "/login",
+        replace: true,
+      });
+    } catch (error) {
+      console.error("[operator] sign out failed:", error);
       setBusy(false);
     }
   }

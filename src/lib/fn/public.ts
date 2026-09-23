@@ -46,6 +46,17 @@ await createOperatorSession();
 return { ok: true as const };
   });
 
+  export const getOperatorSession = createServerFn({
+  method: "GET",
+}).handler(async () => {
+  const { hasOperatorSession } =
+    await import("@/lib/auth/operator-session.server");
+
+  return {
+    ok: await hasOperatorSession(),
+  };
+});
+
 export const logoutOperator = createServerFn({
   method: "POST",
 }).handler(async () => {

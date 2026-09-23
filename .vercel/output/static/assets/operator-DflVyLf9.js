@@ -1,1 +1,0 @@
-import{i as e,t}from"./react-DB-4Zxce.js";var n=e(t(),1);function r(){let[e,t]=(0,n.useState)(!1),[r,i]=(0,n.useState)(!1);return(0,n.useEffect)(()=>{let e=!1;return fetch(`/api/operator/session`,{credentials:`same-origin`}).then(e=>e.ok).catch(()=>!1).then(n=>{e||(t(n),i(!0))}),()=>{e=!0}},[]),{isPending:!r,isOperator:e}}export{r as t};

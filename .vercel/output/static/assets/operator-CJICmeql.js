@@ -1,0 +1,1 @@
+import{i as e,t}from"./react-DB-4Zxce.js";import{t as n}from"./public-Cq6S8Jcy.js";var r=e(t(),1);function i(){let[e,t]=(0,r.useState)(!1),[i,a]=(0,r.useState)(!1);return(0,r.useEffect)(()=>{let e=!1;return n().then(n=>{e||(t(n.ok),a(!0))}).catch(n=>{console.error(`[operator] session check failed:`,n),e||(t(!1),a(!0))}),()=>{e=!0}},[]),{isPending:!i,isOperator:e}}export{i as t};
