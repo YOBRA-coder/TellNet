@@ -1,0 +1,86 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
+import { PackageCard } from "@/components/portal/package-card";
+import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
+import { useDevice } from "@/hooks/use-device";
+import { getPortalBootstrap } from "@/lib/fn/portal";
+import type { Package } from "@/lib/types";
+
+const portalRoute = getRouteApi("/portal");
+
+export const Route = createFileRoute("/portal/packages")({
+  component: PackagesPage,
+});
+
+function PackagesPage() {
+  const catalog = portalRoute.useLoaderData();
+  const { device, ready } = useDevice();
+  const q = useQuery({
+    queryKey: ["portal", device?.token],
+    enabled: ready && Boolean(device),
+    queryFn: () =>
+      getPortalBootstrap({
+        data: { token: device!.token, phone: device?.phone ?? undefined },
+      }),
+  });
+
+  const settings = q.data?.settings ?? catalog.settings;
+  const packages = q.data?.packages ?? catalog.packages;
+
+  return (
+    <PortalShell
+      hotspotName={settings.hotspotName}
+      maintenanceMode={settings.maintenanceMode}
+      maintenanceMessage={settings.maintenanceMessage}
+      footer={
+        <p className="pb-2 text-center text-sm">
+          <Link to="/portal/recover" className="text-muted hover:text-fg">
+            Already paid?
+          </Link>
+          <span className="mx-2 text-subtle">·</span>
+          <Link to="/portal/voucher" className="text-muted hover:text-fg">
+            Have a voucher code?
+          </Link>
+          <span className="mx-2 text-subtle">·</span>
+          <Link to="/portal/add-device" className="text-muted hover:text-fg">
+            Add a device
+          </Link>
+        </p>
+      }
+    >
+      <h1 className="font-display text-3xl font-semibold tracking-tight">
+        Available packages
+      </h1>
+      {settings.maintenanceMode ? (
+        <p className="mt-2 text-sm text-muted">
+          New purchases are paused while we do maintenance. Check back shortly.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-muted">
+            Speed is enforced per package on the router. Duration is counted by
+            the server, not your phone. Already have an active package? A new
+            purchase queues automatically and starts the moment your current
+            one ends — it won't cut you off early.
+          </p>
+          <div className="mt-6 flex flex-col gap-3">
+            {packages.map((pkg: Package, i: number) => (
+              <PackageCard
+                key={pkg.id}
+                pkg={pkg}
+                currency={settings.currency}
+                maxDevices={pkg.maxDevices}
+                style={{ animationDelay: `${i * 60}ms` }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      <PortalSupportSection
+        supportPhone={settings.supportPhone}
+        supportWhatsapp={settings.supportWhatsapp}
+        supportMessage={settings.supportMessage}
+      />
+    </PortalShell>
+  );
+}
