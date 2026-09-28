@@ -82,7 +82,7 @@ export async function initiateStkPush(input: {
       Password: password,
       Timestamp: ts,
       TransactionType: "CustomerPayBillOnline",
-      Amount: 1,//input.amount
+      Amount: input.amount,
       PartyA: input.phone,
       PartyB: settings.mpesaShortcode,
       PhoneNumber: input.phone,
