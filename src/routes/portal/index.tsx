@@ -115,6 +115,9 @@ function PortalHome() {
           <Link to="/portal/connect" className="text-subtle hover:text-muted">
             Returning customer — connect
           </Link>
+          <Link to="/portal/voucher" className="text-muted hover:text-fg">
+            Have a voucher code?
+          </Link>
           <Link to="/portal/add-device" className="text-muted hover:text-fg">
             Add a device
           </Link>
