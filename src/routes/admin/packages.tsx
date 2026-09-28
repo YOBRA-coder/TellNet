@@ -229,173 +229,240 @@ function PackagesAdminPage() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editing ? "Edit package" : "New package"}</DialogTitle>
+        <DialogContent
+          className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-2xl"
+        >
+          {/* Fixed header - always visible */}
+          <DialogHeader className="shrink-0 border-b border-border pb-4">
+            <DialogTitle>
+              {editing ? "Edit package" : "New package"}
+            </DialogTitle>
           </DialogHeader>
+
+          {/* Scrollable form area */}
           <form
-            className="grid gap-3 sm:grid-cols-2"
+            className="min-h-0 flex-1 overflow-y-auto py-4 pr-2"
             onSubmit={(e) => {
               e.preventDefault();
               save.mutate();
             }}
           >
-            <Field label="Name" className="sm:col-span-2">
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                required
-              />
-            </Field>
-            <Field label="Price (KSh)">
-              <Input
-                type="number"
-                min={0}
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
-              />
-            </Field>
-            <Field label="Duration (minutes)">
-              <Input
-                type="number"
-                min={1}
-                value={form.durationMinutes}
-                onChange={(e) =>
-                  setForm({ ...form, durationMinutes: Number(e.target.value) })
-                }
-              />
-            </Field>
-            <Field label="Download (kbps)">
-              <Input
-                type="number"
-                min={64}
-                value={form.downloadKbps}
-                onChange={(e) =>
-                  setForm({ ...form, downloadKbps: Number(e.target.value) })
-                }
-              />
-            </Field>
-            <Field label="Upload (kbps)">
-              <Input
-                type="number"
-                min={64}
-                value={form.uploadKbps}
-                onChange={(e) =>
-                  setForm({ ...form, uploadKbps: Number(e.target.value) })
-                }
-              />
-            </Field>
-            <Field label="Data limit MB (blank = unlimited)" className="sm:col-span-2">
-              <Input
-                type="number"
-                min={1}
-                value={form.dataLimitMb}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    dataLimitMb: e.target.value === "" ? "" : Number(e.target.value),
-                  })
-                }
-              />
-            </Field>
-            <Field label="Duration kind (controls auto-resume eligibility)">
-              <select
-                className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                value={form.durationKind}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    durationKind: e.target.value as PackageDurationKind,
-                  })
-                }
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Name" className="sm:col-span-2">
+                <Input
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm({ ...form, name: e.target.value })
+                  }
+                  required
+                />
+              </Field>
+
+              <Field label="Price (KSh)">
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.price}
+                  onChange={(e) =>
+                    setForm({ ...form, price: Number(e.target.value) })
+                  }
+                />
+              </Field>
+
+              <Field label="Duration (minutes)">
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.durationMinutes}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      durationMinutes: Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+
+              <Field label="Download (kbps)">
+                <Input
+                  type="number"
+                  min={64}
+                  value={form.downloadKbps}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      downloadKbps: Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+
+              <Field label="Upload (kbps)">
+                <Input
+                  type="number"
+                  min={64}
+                  value={form.uploadKbps}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      uploadKbps: Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+
+              <Field
+                label="Data limit MB (blank = unlimited)"
+                className="sm:col-span-2"
               >
-                {(Object.keys(DURATION_KIND_LABEL) as PackageDurationKind[]).map((k) => (
-                  <option key={k} value={k}>
-                    {DURATION_KIND_LABEL[k]}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-subtle">
-                After a router recovers from an outage, only Weekly, Monthly and
-                Voucher-redeemed packages resume automatically.
-              </p>
-            </Field>
-            {sites.length > 1 && (
-              <Field label="Site">
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.dataLimitMb}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      dataLimitMb:
+                        e.target.value === ""
+                          ? ""
+                          : Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+
+              <Field label="Duration kind (controls auto-resume eligibility)">
                 <select
                   className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                  value={form.siteId}
-                  onChange={(e) => setForm({ ...form, siteId: e.target.value })}
+                  value={form.durationKind}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      durationKind: e.target.value as PackageDurationKind,
+                    })
+                  }
                 >
-                  <option value="">All sites</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
+                  {(
+                    Object.keys(
+                      DURATION_KIND_LABEL
+                    ) as PackageDurationKind[]
+                  ).map((k) => (
+                    <option key={k} value={k}>
+                      {DURATION_KIND_LABEL[k]}
                     </option>
                   ))}
                 </select>
+
+                <p className="mt-1 text-xs text-subtle">
+                  After a router recovers from an outage, only Weekly,
+                  Monthly and Voucher-redeemed packages resume automatically.
+                </p>
               </Field>
-            )}
-            <Field label="Category">
-              <select
-                className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                value={form.category}
-                onChange={(e) =>
-                  setForm({ ...form, category: e.target.value as PackageCategory })
-                }
+
+              {sites.length > 1 && (
+                <Field label="Site">
+                  <select
+                    className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
+                    value={form.siteId}
+                    onChange={(e) =>
+                      setForm({ ...form, siteId: e.target.value })
+                    }
+                  >
+                    <option value="">All sites</option>
+
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+
+              <Field label="Category">
+                <select
+                  className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
+                  value={form.category}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      category: e.target.value as PackageCategory,
+                    })
+                  }
+                >
+                  <option value="STANDARD">Standard</option>
+                  <option value="STUDENT">
+                    Student (cheap, longer, capped speed, domain filter)
+                  </option>
+                </select>
+              </Field>
+
+              <Field label="Devices allowed">
+                <select
+                  className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
+                  value={form.maxDevices}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      maxDevices:
+                        Number(e.target.value) === 2 ? 2 : 1,
+                    })
+                  }
+                >
+                  <option value={1}>1 device</option>
+                  <option value={2}>2 devices</option>
+                </select>
+
+                <p className="mt-1 text-xs text-subtle">
+                  How many devices can share a single purchase of this
+                  package (subject to "Device sharing" being enabled in
+                  Settings).
+                </p>
+              </Field>
+
+              <Field label="Badge (optional)">
+                <select
+                  className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
+                  value={form.badge}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      badge: e.target.value as typeof form.badge,
+                    })
+                  }
+                >
+                  <option value="">None</option>
+                  <option value="MOST_POPULAR">Most Popular</option>
+                  <option value="BEST_VALUE">Best Value</option>
+                </select>
+              </Field>
+
+              <Field label="Points cost (leave blank = not redeemable with points)">
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.pointsCost}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      pointsCost:
+                        e.target.value === ""
+                          ? ""
+                          : Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+            </div>
+
+            {/* Always accessible save button */}
+            <DialogFooter className="sticky bottom-0 mt-6 border-t border-border bg-background pt-4">
+              <Button
+                type="submit"
+                disabled={save.isPending}
+                className="w-full sm:w-auto"
               >
-                <option value="STANDARD">Standard</option>
-                <option value="STUDENT">Student (cheap, longer, capped speed, domain filter)</option>
-              </select>
-            </Field>
-            <Field label="Devices allowed">
-              <select
-                className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                value={form.maxDevices}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    maxDevices: (Number(e.target.value) === 2 ? 2 : 1) as 1 | 2,
-                  })
-                }
-              >
-                <option value={1}>1 device</option>
-                <option value={2}>2 devices</option>
-              </select>
-              <p className="mt-1 text-xs text-subtle">
-                How many devices can share a single purchase of this package
-                (subject to "Device sharing" being enabled in Settings).
-              </p>
-            </Field>
-            <Field label="Badge (optional)">
-              <select
-                className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                value={form.badge}
-                onChange={(e) =>
-                  setForm({ ...form, badge: e.target.value as typeof form.badge })
-                }
-              >
-                <option value="">None</option>
-                <option value="MOST_POPULAR">Most Popular</option>
-                <option value="BEST_VALUE">Best Value</option>
-              </select>
-            </Field>
-            <Field label="Points cost (leave blank = not redeemable with points)">
-              <Input
-                type="number"
-                min={1}
-                value={form.pointsCost}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    pointsCost: e.target.value === "" ? "" : Number(e.target.value),
-                  })
-                }
-              />
-            </Field>
-            <DialogFooter className="sm:col-span-2">
-              <Button type="submit" disabled={save.isPending}>
-                Save package
+                {save.isPending ? "Saving..." : "Save package"}
               </Button>
             </DialogFooter>
           </form>
