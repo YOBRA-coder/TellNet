@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
+import { readSite } from "@/lib/device";
 import { formatDuration, formatKes, formatSpeed } from "@/lib/format";
 import { getPortalBootstrap, startPayment } from "@/lib/fn/portal";
 import { formatPhoneDisplay, isKenyanPhone } from "@/lib/phone";
@@ -61,6 +62,7 @@ function PaymentPage() {
           phone,
           token: device.token,
           referralCode: referralCode.trim() || undefined,
+          site: readSite(),
         },
       });
       if (!res.ok) throw new Error(res.error);
@@ -142,6 +144,9 @@ function PaymentPage() {
               className="h-12 text-base"
               disabled={settings.maintenanceMode}
             />
+            <p className="text-xs text-subtle">
+              Got a friend's code? Use it here — no account needed. (Your own code comes when you sign up.)
+            </p>
           </div>
         ) : null}
         {error && <p className="text-sm text-danger">{error}</p>}

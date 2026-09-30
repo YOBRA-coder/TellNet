@@ -13,7 +13,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
@@ -47,6 +55,18 @@ function CustomersPage() {
   const pkgs = useQuery({ queryKey: ["packages"], queryFn: () => listPackagesAdmin() });
   const [openId, setOpenId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  // "Extend time" dialog: which customer, and the hours/minutes typed in.
+  const [extendFor, setExtendFor] = useState<{ id: string; phone: string } | null>(null);
+  const [extHours, setExtHours] = useState("1");
+  const [extMins, setExtMins] = useState("0");
+  const extendTotal =
+    Math.max(0, Math.floor(Number(extHours) || 0)) * 60 +
+    Math.max(0, Math.floor(Number(extMins) || 0));
+  const openExtend = (id: string, phone: string) => {
+    setExtHours("1");
+    setExtMins("0");
+    setExtendFor({ id, phone });
+  };
   const selected = q.data?.find((r) => r.customer.id === openId);
 
   const filtered = useMemo(() => {
@@ -78,24 +98,23 @@ function CustomersPage() {
         | "changePackage"
         | "retry"
         | "releaseDevice"
+        | "resetPin"
         | "delete";
       minutes?: number;
       packageId?: string;
     }) => customerAction({ data: input }),
     onSuccess: (res, vars) => {
       if (!res.ok) toast.error(res.error);
-      else
-        toast.success(
-          vars.action === "releaseDevice"
-            ? "Device released. Another phone can connect."
-            : vars.action === "delete"
-              ? "Customer data deleted."
-              : "Updated",
-        );
-      if (vars.action === "delete") setOpenId(null);
+      else if (vars.action === "resetPin" && "pin" in res) {
+        toast.success(res.message, { duration: 30_000 });
+      } else toast.success("message" in res && res.message ? res.message : "Updated");
+      if (res.ok && vars.action === "delete") setOpenId(null);
+      if (res.ok && vars.action === "extend") setExtendFor(null);
       qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customer-history"] });
       qc.invalidateQueries({ queryKey: ["live"] });
     },
+    onError: () => toast.error("That action failed. Please try again."),
   });
 
   return (
@@ -232,15 +251,22 @@ function CustomersPage() {
                         Retry activation
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() =>
-                          act.mutate({
-                            customerId: row.customer.id,
-                            action: "extend",
-                            minutes: 60,
-                          })
-                        }
+                        onClick={() => openExtend(row.customer.id, row.customer.phone)}
                       >
-                        Extend 1 hour
+                        Extend time…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Reset the PIN for ${formatPhoneDisplay(row.customer.phone)}? A new PIN is shown once for you to give them.`,
+                            )
+                          ) {
+                            act.mutate({ customerId: row.customer.id, action: "resetPin" });
+                          }
+                        }}
+                      >
+                        Reset PIN / password
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       {row.customer.status === "BLOCKED" ? (
@@ -310,7 +336,7 @@ function CustomersPage() {
       </div>
 
       <Sheet open={Boolean(selected)} onOpenChange={() => setOpenId(null)}>
-        <SheetContent>
+        <SheetContent className="pb-10">
           {selected && (
             <>
               <SheetHeader>
@@ -320,6 +346,12 @@ function CustomersPage() {
               </SheetHeader>
               <dl className="mt-4 space-y-3 text-sm">
                 <Row k="Status" v={selected.customer.status} />
+                {history.data ? (
+                  <Row
+                    k="Account"
+                    v={history.data.registered ? "Registered (PIN set)" : "Guest (no account)"}
+                  />
+                ) : null}
                 <Row k="Package" v={selected.pack?.packageName ?? "—"} />
                 <Row
                   k="Activation"
@@ -452,6 +484,88 @@ function CustomersPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={Boolean(extendFor)} onOpenChange={(o) => !o && setExtendFor(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Extend time</DialogTitle>
+            <DialogDescription>
+              Add time to {extendFor ? formatPhoneDisplay(extendFor.phone) : "this customer"}'s
+              current package. Anything queued behind it moves back by the same amount.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!extendFor) return;
+              if (extendTotal < 1) return void toast.error("Enter at least 1 minute.");
+              if (extendTotal > 525_600) return void toast.error("That's more than a year — use a smaller amount.");
+              act.mutate({ customerId: extendFor.id, action: "extend", minutes: extendTotal });
+            }}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="ext-h">Hours</Label>
+                <Input
+                  id="ext-h"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={8760}
+                  value={extHours}
+                  onChange={(e) => setExtHours(e.target.value)}
+                  className="h-12 text-base"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ext-m">Minutes</Label>
+                <Input
+                  id="ext-m"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={59}
+                  value={extMins}
+                  onChange={(e) => setExtMins(e.target.value)}
+                  className="h-12 text-base"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                ["30 min", 0, 30],
+                ["1 hr", 1, 0],
+                ["3 hrs", 3, 0],
+                ["1 day", 24, 0],
+              ].map(([label, h, m]) => (
+                <Button
+                  key={String(label)}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setExtHours(String(h));
+                    setExtMins(String(m));
+                  }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-sm text-muted">
+              Adding{" "}
+              <span className="font-medium text-fg">
+                {String(Math.floor(extendTotal / 60)).padStart(2, "0")} hrs{" "}
+                {String(extendTotal % 60).padStart(2, "0")} mins
+              </span>
+            </p>
+            <Button type="submit" className="w-full" disabled={act.isPending || extendTotal < 1}>
+              {act.isPending ? "Extending…" : "Extend"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

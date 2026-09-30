@@ -6,7 +6,23 @@ import { logEvent } from "./settings.server";
  * Database is the source of truth. Run on every portal/admin read that
  * depends on live access — no browser timer.
  */
+let sweeping = false;
+
 export async function expireDuePackages(): Promise<number> {
+  // Promoting a queued package calls activateFromPayment(), which itself
+  // starts with expireDuePackages(). Without this guard that nesting would
+  // re-enter the sweep (and its stranded-package pass) forever. A second
+  // concurrent caller skipping is harmless — the first is already doing it.
+  if (sweeping) return 0;
+  sweeping = true;
+  try {
+    return await sweepExpired();
+  } finally {
+    sweeping = false;
+  }
+}
+
+async function sweepExpired(): Promise<number> {
   const sql = await getSql();
   const due = await sql<{
     id: string;
@@ -65,7 +81,9 @@ export async function expireDuePackages(): Promise<number> {
     if (nextQueued[0]) {
       try {
         const { activateFromPayment } = await import("./activation.server");
-        await activateFromPayment(String(nextQueued[0].payment_id));
+        await activateFromPayment(String(nextQueued[0].payment_id), undefined, {
+          promote: true,
+        });
       } catch (err) {
         console.error(
           "[expiry] failed to promote queued package for",
@@ -73,6 +91,30 @@ export async function expireDuePackages(): Promise<number> {
           err,
         );
       }
+    }
+  }
+
+  // Safety net: a queued package whose turn has come but that was never
+  // promoted (the package ahead of it was revoked or removed, an earlier
+  // promotion threw, the server restarted mid-loop) must not sit QUEUED
+  // forever while the customer has nothing running.
+  const stranded = await sql<{ payment_id: string }>`
+    select distinct on (q.customer_id) q.payment_id
+    from customer_packages q
+    where q.status = 'QUEUED'
+      and q.start_time <= now()
+      and not exists (
+        select 1 from customer_packages a
+        where a.customer_id = q.customer_id and a.status = 'ACTIVE' and a.expiry_time > now()
+      )
+    order by q.customer_id, q.start_time asc
+  `;
+  for (const row of stranded) {
+    try {
+      const { activateFromPayment } = await import("./activation.server");
+      await activateFromPayment(String(row.payment_id), undefined, { promote: true });
+    } catch (err) {
+      console.error("[expiry] failed to promote stranded queued package", err);
     }
   }
   return due.length;

@@ -1,3 +1,36 @@
+# Changes — customer accounts, sites, rewards page, RADIUS, network map
+
+- **Network map** (`/admin/network-map`, migration `0025_network_map.sql`): site/town selector, summary cards
+  (routers, access points, active users, traffic) that follow the selected site, topology grouped by town
+  (router status, ISP paths, access points under each router), and a detail panel per router with CPU, memory,
+  uptime, active users, bandwidth, access-point table and active ports/interfaces with live in/out rates.
+  Auto-refresh (15 s) + Refresh now. Green = online, yellow = warning, red = offline.
+  Everything is read from the routers themselves; nothing is invented (see limits in the notes below).
+- **Access points**: new AP inventory (Add/Edit/Remove). An AP belongs to a MikroTik and inherits its site.
+  Status = ping from the router; clients = hotspot users behind the AP's router port; the router's own
+  wifi radios appear automatically with signal. "Found on this router" suggests devices from neighbor discovery.
+- **Site filter everywhere**: one switcher shared by Network map, Network, Dashboard and Reports.
+  Payments and customers now get their site automatically at checkout (portal link `?site=slug`, else the
+  package's site, else Main). Existing rows with no site count as the Main site.
+
+- **Sign up / sign in** (`/portal/auth`): phone + PIN or password (scrypt-hashed, 5-try lockout,
+  server-side sessions per device). Guests who already paid must prove ownership with an M-Pesa code.
+  Operators can **Reset PIN** from Customers.
+- **Loyalty points are members-only**; **referral codes are issued at sign up only**. Anyone (even without an
+  account) can still *use* a code at checkout; invalid codes are now rejected instead of silently ignored.
+- **Referral alerts**: the referrer is notified the moment a friend joins, and again when the bonus is paid.
+- **Rewards page** (`/portal/rewards`) holds points, redeem, referral code/stats and alerts (removed from Account).
+- **Queued packages** now show on Account (bug: `queued.length < 0`), including when nothing is active; queued
+  packages start with their full paid time and a stranded-queue sweep was added.
+- **Sites**: Add Router / Add ISP have a site field with "+ New site"; ISPs follow their router's site;
+  packages are scoped per site (`/portal?site=<slug>`); new **Site map** dialog on Network.
+- **Admin**: customer sheet and menus scroll; all customer actions verified/fixed (disconnect, unblock re-enables
+  login, extend/change package push to the router, retry never starts queued packages early).
+- **Extend time is customizable**: the fixed "Extend 1 hour" menu item is now "Extend time…", opening a dialog with Hours + Minutes inputs (quick picks: 30 min, 1 hr, 3 hrs, 1 day) and a live "00 hrs 00 mins" preview.
+- **Settings**: the form never loaded RADIUS values so every save turned RADIUS off — fixed; save errors now show.
+- **RADIUS**: built into the app (PAP+CHAP, Session-Timeout, rate limit), with Apply-to-routers and Check-routers.
+  Migration `0024_customer_accounts.sql`.
+
 # Changes in this pass
 
 New migrations (run in order, they're all additive/`if not exists`):

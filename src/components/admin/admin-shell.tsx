@@ -9,7 +9,7 @@ import {
   Settings,
   Ticket,
   Users,
-  Wifi,
+  Wifi, Network,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { TelNetMark } from "@/components/brand";
@@ -33,6 +33,7 @@ const NAV = [
   { to: "/admin/vouchers", label: "Vouchers", icon: Ticket },
   { to: "/admin/reports", label: "Reports", icon: Activity },
   { to: "/admin/network", label: "Network", icon: Radio },
+  { to: "/admin/network-map", label: "Network map", icon: Network },
   { to: "/admin/settings", label: "Settings", icon: Settings },
 ] as const;
 

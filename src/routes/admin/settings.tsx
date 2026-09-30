@@ -8,7 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { getSettingsAdmin, saveSettingsAdmin } from "@/lib/fn/admin";
+import {
+  applyRadiusToRouters,
+  checkRadiusRouters,
+  getRadiusStatus,
+  getSettingsAdmin,
+  saveSettingsAdmin,
+} from "@/lib/fn/admin";
 
 export const Route = createFileRoute("/admin/settings")({
   component: SettingsPage,
@@ -51,6 +57,7 @@ function SettingsPage() {
     radiusSecret: "",
     radiusAuthPort: 1812,
     radiusAcctPort: 1813,
+    radiusServerHost: "",
   });
 
   useEffect(() => {
@@ -82,16 +89,43 @@ function SettingsPage() {
       welcomeBonusMinutes: q.data.welcomeBonusMinutes,
       referralMinPackagePrice: q.data.referralMinPackagePrice,
       studentBlockedDomains: q.data.studentBlockedDomains,
+      // Without these the form kept its defaults and every save switched
+      // RADIUS back off and reset the ports.
+      radiusEnabled: q.data.radiusEnabled,
+      radiusAuthPort: q.data.radiusAuthPort,
+      radiusAcctPort: q.data.radiusAcctPort,
+      radiusServerHost: q.data.radiusServerHost ?? "",
     }));
   }, [q.data]);
 
   const save = useMutation({
     mutationFn: () => saveSettingsAdmin({ data: form }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       toast.success("Settings saved");
+      if (res.radius?.error) toast.error(res.radius.error, { duration: 10_000 });
+      setForm((f) => ({ ...f, radiusSecret: "" }));
       qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["radius-status"] });
     },
+    onError: () => toast.error("Could not save settings. Check the values and try again."),
   });
+
+  const radiusQ = useQuery({
+    queryKey: ["radius-status"],
+    queryFn: () => getRadiusStatus(),
+    refetchInterval: 10_000,
+  });
+  const apply = useMutation({
+    mutationFn: () => applyRadiusToRouters(),
+    onSuccess: (res) => {
+      if (!res.ok) return void toast.error(res.error);
+      const bad = res.results.filter((r) => !r.ok);
+      if (bad.length === 0) toast.success(`Applied to ${res.results.length} router(s). Run "Check routers" to confirm.`);
+      else toast.error(bad.map((b) => `${b.name}: ${b.error}`).join(" · "), { duration: 12_000 });
+    },
+    onError: () => toast.error("Could not reach the routers."),
+  });
+  const check = useMutation({ mutationFn: () => checkRadiusRouters() });
 
   return (
     <form
@@ -453,25 +487,118 @@ function SettingsPage() {
       <Card className="space-y-4 p-5">
         <h2 className="font-display text-lg font-semibold">RADIUS (multi-AP)</h2>
         <p className="text-sm text-muted">
-          Central auth for all APs. Same package time across APs — no new bill on roam.
-          Run <code className="text-xs">node scripts/radius-server.mjs</code> in production or point FreeRADIUS at TelNet users.
+          One login works on every access point: the routers ask this app who is allowed online, so a
+          customer's remaining time follows them when they roam. This app runs the RADIUS server itself
+          (UDP) — the host must allow inbound UDP on the ports below.
         </p>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.radiusEnabled}
-            onChange={(e) => setForm({ ...form, radiusEnabled: e.target.checked })}
-          />
-          Enable RADIUS
-        </label>
-        <Field label="Shared secret">
+        <Toggle
+          label="Enable RADIUS"
+          hint="Starts the RADIUS listener in this app. Then press “Apply to routers” to configure MikroTik."
+          checked={form.radiusEnabled}
+          onCheckedChange={(v) => setForm({ ...form, radiusEnabled: v })}
+        />
+        <Field label="This server's address (what your routers can reach)">
           <Input
-            type="password"
-            value={form.radiusSecret}
-            onChange={(e) => setForm({ ...form, radiusSecret: e.target.value })}
-            placeholder="Paste to update"
+            value={form.radiusServerHost}
+            onChange={(e) => setForm({ ...form, radiusServerHost: e.target.value })}
+            placeholder="e.g. 203.0.113.10 or radius.example.com"
           />
         </Field>
+        <Field
+          label={`Shared secret${q.data?.hasRadiusSecret ? " (saved — type to replace)" : ""}`}
+        >
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={form.radiusSecret}
+            onChange={(e) => setForm({ ...form, radiusSecret: e.target.value })}
+            placeholder={q.data?.hasRadiusSecret ? "•••••••• (unchanged)" : "Choose a long random secret"}
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Auth port">
+            <Input
+              type="number"
+              min={1}
+              max={65535}
+              value={form.radiusAuthPort}
+              onChange={(e) => setForm({ ...form, radiusAuthPort: Number(e.target.value) || 1812 })}
+            />
+          </Field>
+          <Field label="Accounting port">
+            <Input
+              type="number"
+              min={1}
+              max={65535}
+              value={form.radiusAcctPort}
+              onChange={(e) => setForm({ ...form, radiusAcctPort: Number(e.target.value) || 1813 })}
+            />
+          </Field>
+        </div>
+
+        {radiusQ.data ? (
+          <div className="rounded-lg border border-border bg-raised p-3 text-xs text-muted">
+            <p>
+              Listener:{" "}
+              <span className={radiusQ.data.listener.running ? "text-ok" : "text-subtle"}>
+                {radiusQ.data.listener.running
+                  ? `running on UDP ${radiusQ.data.listener.authPort}/${radiusQ.data.listener.acctPort}`
+                  : "not running"}
+              </span>
+              {radiusQ.data.listener.requests > 0
+                ? ` · ${radiusQ.data.listener.accepted} accepted, ${radiusQ.data.listener.rejected} rejected`
+                : ""}
+            </p>
+            {radiusQ.data.listener.error ? (
+              <p className="mt-1 text-danger">{radiusQ.data.listener.error}</p>
+            ) : null}
+            <p className="mt-1">
+              Save first — Apply and Check use the saved settings, not unsaved edits.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" onClick={() => apply.mutate()} disabled={apply.isPending}>
+            {apply.isPending ? "Applying…" : "Apply to routers"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => check.mutate()} disabled={check.isPending}>
+            {check.isPending ? "Checking…" : "Check routers"}
+          </Button>
+        </div>
+
+        {check.data ? (
+          <ul className="space-y-2 text-sm">
+            {check.data.checks.length === 0 ? (
+              <li className="text-muted">No routers to check.</li>
+            ) : null}
+            {check.data.checks.map((c) => {
+              const problems: string[] = [];
+              if (!c.reachable) problems.push(c.error ?? "Router unreachable");
+              else if (check.data.enabled) {
+                if (!c.entryFound) problems.push("No RADIUS entry on the router — press Apply");
+                else {
+                  if (c.entryDisabled) problems.push("RADIUS entry is disabled");
+                  if (!c.addressMatches) problems.push("Server address differs from Settings");
+                  if (!c.secretMatches) problems.push("Shared secret differs from Settings");
+                  if (!c.portsMatch) problems.push("Ports differ from Settings");
+                  if (c.hotspotUsesRadius === false)
+                    problems.push(`Hotspot profile “${c.hotspotProfile}” has use-radius=no`);
+                }
+              } else if (c.entryFound && !c.entryDisabled) {
+                problems.push("RADIUS is still active on the router — press Apply to turn it off");
+              }
+              return (
+                <li key={c.id} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
+                  <span className="font-medium">{c.name}</span>
+                  <span className={problems.length === 0 ? "text-ok" : "text-danger"}>
+                    {problems.length === 0 ? "OK — matches Settings" : problems.join(" · ")}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
       </Card>
 
       <Card className="space-y-4 p-5">

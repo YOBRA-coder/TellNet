@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SiteSwitcher } from "@/components/admin/site-switcher";
+import { useAdminSite } from "@/hooks/use-admin-site";
 import { formatBytes, formatKes, formatStamp } from "@/lib/format";
 import { formatPhoneDisplay } from "@/lib/phone";
 import { getDashboard, getDataUsage } from "@/lib/fn/admin";
@@ -49,9 +51,10 @@ function rangeForPreset(preset: UsagePreset, customFrom: string, customTo: strin
 }
 
 function DashboardPage() {
+  const [siteId] = useAdminSite();
   const q = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: () => getDashboard(),
+    queryKey: ["dashboard", siteId],
+    queryFn: () => getDashboard({ data: { siteId } }),
     staleTime: 20_000,
     refetchInterval: 45_000,
     placeholderData: (prev) => prev,
@@ -142,7 +145,10 @@ if (!q.data) {
             Dashboard
           </h1>
         </div>
-        <Badge tone={internet === "Online" ? "ok" : "warn"}>{internet}</Badge>
+        <div className="flex items-center gap-2">
+          <SiteSwitcher />
+          <Badge tone={internet === "Online" ? "ok" : "warn"}>{internet}</Badge>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -3,22 +3,42 @@ import { z } from "zod";
 //import { authMiddleware } from "@/lib/auth/middleware";
 import { authMiddleware } from "@/lib/auth/operator-middleware";
 import { getSql } from "@/lib/db";
-import { nid, asNumber } from "@/lib/utils";
+import { nid, asNumber, iso } from "@/lib/utils";
+import type {
+  AccessPointRow,
+  HealthState,
+  LiveSnapshot,
+  MapRouter,
+  MapSite,
+  NetworkMapData,
+} from "@/lib/types";
 import { expireDuePackages } from "@/lib/services/expiry.server";
 import { resumeEligiblePackages } from "@/lib/services/resume.server";
 import {
   activateFromPayment,
   blockCustomer,
   disconnectSession,
+  reconnectCustomer,
   releaseDeviceBind,
   tickLiveUsage,
 } from "@/lib/services/activation.server";
 import {
+  applyRadiusToRouter,
+  checkRadiusOnRouter,
+  disconnectUser,
+  getRouterCredentialsById,
   normalizeRouterHost,
   pingRouter,
   probeRouter,
   applyCamouflage as applyCamouflageLive,
 } from "@/lib/services/mikrotik.server";
+import { resetCustomerPin } from "@/lib/services/customer-auth.server";
+import { getRadiusConfig } from "@/lib/services/radius.server";
+import { refreshNetworkLive } from "@/lib/services/network-live.server";
+import {
+  getRadiusListenerStatus,
+  syncRadiusListener,
+} from "@/lib/services/radius-listener.server";
 import { getSettings, logEvent } from "@/lib/services/settings.server";
 import {
   mapCustomer,
@@ -35,9 +55,15 @@ import {
 import { listVouchers, generateVouchers } from "@/lib/services/vouchers.server";
 import { processActivationRetries } from "../services/callback.server";
 
-export const getDashboard = createServerFn({ method: "GET" })
+/** "ALL"/undefined = every site. Payments/customers with no site count as the main site. */
+const siteParam = z.object({ siteId: z.string().optional() }).optional();
+const normSite = (v?: string | null) => (v && v !== "ALL" ? v : null);
+
+export const getDashboard = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async () => {
+  .validator((data: unknown) => siteParam.parse(data))
+  .handler(async ({ data: input }) => {
+    const site = normSite(input?.siteId);
     // Non-blocking maintenance — do not delay first paint
     void expireDuePackages().catch(() => {});
     void tickLiveUsage().catch(() => {});
@@ -63,6 +89,7 @@ export const getDashboard = createServerFn({ method: "GET" })
             count(*) filter (where status in ('FAILED','CANCELLED'))::int as failed
           from payments
           where created_at >= date_trunc('day', now())
+            and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
         `,
         sql<{
           online: number;
@@ -72,18 +99,30 @@ export const getDashboard = createServerFn({ method: "GET" })
           awaiting: number;
         }>`
           select
-            (select count(*) from sessions where status = 'ACTIVE')::int as online,
-            (select count(*) from customer_packages where status = 'ACTIVE' and expiry_time > now())::int as active_pkg,
-            (select count(*) from customer_packages where status = 'EXPIRED')::int as expired_pkg,
-            (select count(*) from customers)::int as customers,
-            (select count(*) from payments where status = 'SUCCESS' and activation_status = 'ACTIVATION_FAILED')::int as awaiting
+            (select count(*) from sessions s join customers c on c.id = s.customer_id
+               where s.status = 'ACTIVE' and (${site}::text is null or coalesce(c.site_id, 'site_default') = ${site}))::int as online,
+            (select count(*) from customer_packages cp join customers c on c.id = cp.customer_id
+               where cp.status = 'ACTIVE' and cp.expiry_time > now()
+                 and (${site}::text is null or coalesce(c.site_id, 'site_default') = ${site}))::int as active_pkg,
+            (select count(*) from customer_packages cp join customers c on c.id = cp.customer_id
+               where cp.status = 'EXPIRED'
+                 and (${site}::text is null or coalesce(c.site_id, 'site_default') = ${site}))::int as expired_pkg,
+            (select count(*) from customers c
+               where ${site}::text is null or coalesce(c.site_id, 'site_default') = ${site})::int as customers,
+            (select count(*) from payments where status = 'SUCCESS' and activation_status = 'ACTIVATION_FAILED'
+               and (${site}::text is null or coalesce(site_id, 'site_default') = ${site}))::int as awaiting
         `,
-        sql<SqlRow>`select * from isps order by sort_order`,
-        sql<SqlRow>`select * from mikrotiks order by is_primary desc, created_at`,
+        sql<SqlRow>`select * from isps
+          where ${site}::text is null or coalesce(site_id, 'site_default') = ${site}
+          order by sort_order`,
+        sql<SqlRow>`select * from mikrotiks
+          where ${site}::text is null or coalesce(site_id, 'site_default') = ${site}
+          order by is_primary desc, created_at`,
         sql<SqlRow>`select * from network_events order by created_at desc limit 8`,
         sql<SqlRow>`
           select p.*, pkg.name as package_name
           from payments p join packages pkg on pkg.id = p.package_id
+          where ${site}::text is null or coalesce(p.site_id, 'site_default') = ${site}
           order by p.created_at desc limit 8
         `,
       ]);
@@ -295,6 +334,7 @@ export const getCustomerHistoryAdmin = createServerFn({ method: "POST" })
 
     return {
       customer: mapCustomer(customerRows[0]),
+      registered: Boolean(customerRows[0].registered_at),
       referralCode: customerRows[0].referral_code
         ? String(customerRows[0].referral_code)
         : null,
@@ -333,34 +373,84 @@ export const customerAction = createServerFn({ method: "POST" })
           "changePackage",
           "retry",
           "releaseDevice",
+          "resetPin",
           "delete",
         ]),
-        minutes: z.number().optional(),
+        minutes: z.number().int().min(1).max(525_600).optional(),
         packageId: z.string().optional(),
       })
       .parse(data),
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const exists = await sql<{ id: string }>`
+      select id from customers where id = ${data.customerId} limit 1
+    `;
+    if (!exists[0]) return { ok: false as const, error: "Customer not found." };
+
     if (data.action === "block") {
       await blockCustomer(data.customerId);
-      return { ok: true as const };
+      await sql`delete from customer_sessions where customer_id = ${data.customerId}`;
+      return { ok: true as const, message: "Customer blocked and disconnected." };
     }
+
     if (data.action === "unblock") {
       await sql`update customers set status = 'ACTIVE', updated_at = now() where id = ${data.customerId}`;
-      return { ok: true as const };
+      // blockCustomer() disabled their router login — turn it back on if
+      // they still have time left.
+      const res = await reconnectCustomer(data.customerId).catch(() => null);
+      return {
+        ok: true as const,
+        message:
+          res && res.ok
+            ? "Customer unblocked and their package re-enabled."
+            : "Customer unblocked.",
+      };
     }
+
     if (data.action === "disconnect") {
       const ses = await sql<{ id: string }>`
         select id from sessions where customer_id = ${data.customerId} and status = 'ACTIVE'
       `;
       for (const s of ses) await disconnectSession(s.id);
-      return { ok: true as const };
+      // Also kick the login on the router itself, in case the local session
+      // record is missing or stale.
+      const user = await sql<{ mikrotik_username: string | null }>`
+        select mikrotik_username from customer_packages
+        where customer_id = ${data.customerId} and status = 'ACTIVE' and mikrotik_username is not null
+        order by expiry_time desc limit 1
+      `;
+      let routerKick = false;
+      if (user[0]?.mikrotik_username) {
+        routerKick = await disconnectUser(user[0].mikrotik_username).then(
+          () => true,
+          () => false,
+        );
+      }
+      if (ses.length === 0 && !routerKick) {
+        return { ok: false as const, error: "This customer isn't connected right now." };
+      }
+      return {
+        ok: true as const,
+        message: "Disconnected. Their paid package is unchanged — they can reconnect.",
+      };
     }
+
     if (data.action === "releaseDevice") {
       await releaseDeviceBind(data.customerId);
-      return { ok: true as const };
+      return { ok: true as const, message: "Device released. Another phone can connect." };
     }
+
+    if (data.action === "resetPin") {
+      const pin = await resetCustomerPin(data.customerId);
+      await logEvent("CUSTOMER", `PIN reset for customer ${data.customerId}.`);
+      return {
+        ok: true as const,
+        message: `New PIN: ${pin} — give it to the customer; they can sign in with it now.`,
+        pin,
+      };
+    }
+
     if (data.action === "delete") {
       const ses = await sql<{ id: string }>`
         select id from sessions where customer_id = ${data.customerId} and status = 'ACTIVE'
@@ -370,32 +460,69 @@ export const customerAction = createServerFn({ method: "POST" })
         update payments set phone = 'deleted', updated_at = now()
         where customer_id = ${data.customerId}
       `;
+      await sql`delete from customer_sessions where customer_id = ${data.customerId}`;
       await sql`
         update customers
         set phone = ${"deleted-" + data.customerId},
             device_token = null,
             status = 'BLOCKED',
+            pin_hash = null,
+            pin_salt = null,
+            referral_code = null,
             deleted_at = now(),
             updated_at = now()
         where id = ${data.customerId}
       `;
       await logEvent("CUSTOMER", `Customer ${data.customerId} data was deleted.`);
-      return { ok: true as const };
+      return { ok: true as const, message: "Customer data deleted." };
     }
+
     if (data.action === "extend") {
       const mins = data.minutes ?? 60;
+      const active = await sql<{ id: string }>`
+        select id from customer_packages
+        where customer_id = ${data.customerId} and status = 'ACTIVE' and expiry_time > now()
+        limit 1
+      `;
+      if (!active[0]) {
+        return { ok: false as const, error: "No active package to extend." };
+      }
       await sql`
         update customer_packages
         set expiry_time = expiry_time + (${mins} * interval '1 minute'), updated_at = now()
         where customer_id = ${data.customerId} and status = 'ACTIVE'
       `;
-      return { ok: true as const };
+      // Slide anything queued behind it so the extra time doesn't overlap.
+      await sql`
+        update customer_packages
+        set start_time = start_time + (${mins} * interval '1 minute'),
+            expiry_time = expiry_time + (${mins} * interval '1 minute'),
+            updated_at = now()
+        where customer_id = ${data.customerId} and status = 'QUEUED'
+      `;
+      // Push the new session timeout to the router so it actually applies.
+      const res = await reconnectCustomer(data.customerId).catch(() => null);
+      return {
+        ok: true as const,
+        message:
+          res && res.ok
+            ? `Extended by ${mins} min and updated on the router.`
+            : `Extended by ${mins} min. The router couldn't be updated just now — use Retry activation.`,
+      };
     }
-    if (data.action === "changePackage" && data.packageId) {
+
+    if (data.action === "changePackage") {
+      if (!data.packageId) return { ok: false as const, error: "Choose a package." };
       const pkg = (
         await sql<SqlRow>`select * from packages where id = ${data.packageId} limit 1`
       )[0];
       if (!pkg) return { ok: false as const, error: "Package not found." };
+      const active = await sql<{ id: string }>`
+        select id from customer_packages
+        where customer_id = ${data.customerId} and status = 'ACTIVE' and expiry_time > now()
+        limit 1
+      `;
+      if (!active[0]) return { ok: false as const, error: "No active package to change." };
       await sql`
         update customer_packages
         set package_id = ${pkg.id},
@@ -404,21 +531,42 @@ export const customerAction = createServerFn({ method: "POST" })
             updated_at = now()
         where customer_id = ${data.customerId} and status = 'ACTIVE'
       `;
-      return { ok: true as const };
+      // Remaining time is kept; only speed/limits/devices change — apply on the router.
+      const res = await reconnectCustomer(data.customerId).catch(() => null);
+      return {
+        ok: true as const,
+        message:
+          res && res.ok
+            ? `Switched to ${String(pkg.name)} (remaining time kept) and updated on the router.`
+            : `Switched to ${String(pkg.name)}. The router couldn't be updated just now — use Retry activation.`,
+      };
     }
+
     if (data.action === "retry") {
-      const pay = await sql<{ id: string }>`
+      // Retry a payment that was paid but never reached the router; if
+      // nothing failed, re-push the running package. NEVER pick a payment
+      // whose package is still queued — that would start it early.
+      const failed = await sql<{ id: string }>`
         select p.id from payments p
-        join customer_packages cp on cp.payment_id = p.id
-        where cp.customer_id = ${data.customerId}
-        order by p.created_at desc
-        limit 1
+        where p.customer_id = ${data.customerId} and p.status = 'SUCCESS'
+          and p.activation_status in ('ACTIVATION_FAILED', 'NOT_ACTIVATED')
+        order by p.created_at desc limit 1
       `;
-      if (!pay[0]) return { ok: false as const, error: "No payment to retry." };
-      const result = await activateFromPayment(pay[0].id);
-      return result.ok
-        ? { ok: true as const }
-        : { ok: false as const, error: "Activation failed. Check the router." };
+      if (failed[0]) {
+        const result = await activateFromPayment(failed[0].id);
+        return result.ok
+          ? { ok: true as const, message: "Activated." }
+          : { ok: false as const, error: "Activation failed. Check the router." };
+      }
+      const res = await reconnectCustomer(data.customerId);
+      if (res.ok) return { ok: true as const, message: "Package re-sent to the router." };
+      return {
+        ok: false as const,
+        error:
+          res.reason === "none"
+            ? "Nothing to retry — this customer has no active or failed package."
+            : "Activation failed. Check the router.",
+      };
     }
     return { ok: false as const, error: "Unknown action." };
   });
@@ -576,9 +724,11 @@ export const kickLiveUser = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
-export const getReports = createServerFn({ method: "GET" })
+export const getReports = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async () => {
+  .validator((data: unknown) => siteParam.parse(data))
+  .handler(async ({ data: input }) => {
+    const site = normSite(input?.siteId);
     const sql = await getSql();
     const today = await sql<{
       revenue: number;
@@ -594,24 +744,28 @@ export const getReports = createServerFn({ method: "GET" })
         count(*) filter (where status in ('FAILED','CANCELLED'))::int as failed,
         count(*) filter (where status = 'SUCCESS')::int as sold
       from payments where created_at >= date_trunc('day', now())
+        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
     `;
     const week = await sql<{ revenue: number; tx: number }>`
       select
         coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
         count(*)::int as tx
       from payments where created_at >= date_trunc('week', now())
+        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
     `;
     const month = await sql<{ revenue: number; tx: number }>`
       select
         coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
         count(*)::int as tx
       from payments where created_at >= date_trunc('month', now())
+        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
     `;
     const best = await sql<{ name: string; sold: number; revenue: number }>`
       select pkg.name, count(*)::int as sold,
              coalesce(sum(p.amount), 0)::int as revenue
       from payments p join packages pkg on pkg.id = p.package_id
       where p.status = 'SUCCESS' and p.created_at >= date_trunc('week', now())
+        and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
       group by pkg.name
       order by sold desc
     `;
@@ -620,6 +774,7 @@ export const getReports = createServerFn({ method: "GET" })
              coalesce(sum(p.amount), 0)::int as revenue
       from payments p join packages pkg on pkg.id = p.package_id
       where p.status = 'SUCCESS' and p.created_at >= date_trunc('month', now())
+        and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
       group by pkg.name
       order by revenue desc
     `;
@@ -629,6 +784,7 @@ export const getReports = createServerFn({ method: "GET" })
              count(*) filter (where status = 'SUCCESS')::int as tx
       from payments
       where created_at >= now() - interval '14 days'
+        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
       group by 1
       order by 1
     `;
@@ -740,8 +896,9 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
         operatorPassword: z.string().optional(),
         radiusEnabled: z.boolean().optional(),
         radiusSecret: z.string().optional(),
-        radiusAuthPort: z.number().optional(),
-        radiusAcctPort: z.number().optional(),
+        radiusAuthPort: z.number().int().min(1).max(65535).optional(),
+        radiusAcctPort: z.number().int().min(1).max(65535).optional(),
+        radiusServerHost: z.string().max(200).optional(),
       })
       .parse(data),
   )
@@ -798,6 +955,9 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
     if (data.radiusAcctPort) {
       await sql`update settings set radius_acct_port = ${data.radiusAcctPort}, updated_at = now() where id = 'default'`;
     }
+    if (typeof data.radiusServerHost === "string") {
+      await sql`update settings set radius_server_host = ${data.radiusServerHost.trim() || null}, updated_at = now() where id = 'default'`;
+    }
     if (data.mpesaConsumerKey) {
       await sql`update settings set mpesa_consumer_key = ${data.mpesaConsumerKey} where id = 'default'`;
     }
@@ -807,7 +967,97 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
     if (data.mpesaPasskey) {
       await sql`update settings set mpesa_passkey = ${data.mpesaPasskey} where id = 'default'`;
     }
-    return { ok: true as const };
+    // Start/stop/rebind the RADIUS UDP listener to match what was just saved.
+    const radius = await syncRadiusListener().catch((err) => ({
+      running: false,
+      error: err instanceof Error ? err.message : "Could not update the RADIUS listener.",
+    }));
+    return { ok: true as const, radius };
+  });
+
+// --- RADIUS (multi-AP) ---------------------------------------------------
+
+export const getRadiusStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const cfg = await getRadiusConfig();
+    return {
+      enabled: cfg.enabled,
+      hasSecret: Boolean(cfg.secret),
+      serverHost: cfg.serverHost,
+      listener: getRadiusListenerStatus(),
+    };
+  });
+
+/**
+ * Push the saved RADIUS settings to every registered router
+ * (/radius entry + use-radius on the hotspot profile).
+ */
+export const applyRadiusToRouters = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const cfg = await getRadiusConfig();
+    if (cfg.enabled && !cfg.secret) {
+      return { ok: false as const, error: "Save a shared secret first." };
+    }
+    if (cfg.enabled && !cfg.serverHost) {
+      return {
+        ok: false as const,
+        error:
+          "Enter this server's address (the IP/hostname your routers can reach), save, then apply.",
+      };
+    }
+    const sql = await getSql();
+    const routers = await sql<{ id: string; name: string }>`
+      select id, name from mikrotiks order by is_primary desc, created_at
+    `;
+    if (routers.length === 0) return { ok: false as const, error: "No routers added yet." };
+    const results: { id: string; name: string; ok: boolean; error: string | null }[] = [];
+    for (const r of routers) {
+      const creds = await getRouterCredentialsById(r.id);
+      if (!creds) {
+        results.push({ id: r.id, name: r.name, ok: false, error: "Missing router credentials." });
+        continue;
+      }
+      const res = await applyRadiusToRouter(creds, {
+        enabled: cfg.enabled,
+        address: cfg.serverHost,
+        secret: cfg.secret,
+        authPort: cfg.authPort,
+        acctPort: cfg.acctPort,
+      });
+      results.push({ id: r.id, name: r.name, ok: res.ok, error: res.error });
+    }
+    await logEvent(
+      "RADIUS",
+      `RADIUS ${cfg.enabled ? "applied to" : "removed from"} ${results.filter((x) => x.ok).length}/${results.length} router(s).`,
+    );
+    return { ok: true as const, results };
+  });
+
+/** Read each router back and report whether it really matches Settings. */
+export const checkRadiusRouters = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const cfg = await getRadiusConfig();
+    const sql = await getSql();
+    const routers = await sql<{ id: string; name: string }>`
+      select id, name from mikrotiks order by is_primary desc, created_at
+    `;
+    const checks = [];
+    for (const r of routers) {
+      const creds = await getRouterCredentialsById(r.id);
+      if (!creds) continue;
+      const check = await checkRadiusOnRouter(creds, {
+        enabled: cfg.enabled,
+        address: cfg.serverHost,
+        secret: cfg.secret,
+        authPort: cfg.authPort,
+        acctPort: cfg.acctPort,
+      });
+      checks.push({ id: r.id, name: r.name, ...check });
+    }
+    return { checks, listener: getRadiusListenerStatus(), enabled: cfg.enabled };
   });
 
 const mikrotikInput = z.object({
@@ -825,7 +1075,50 @@ const mikrotikInput = z.object({
   apiMode: z.enum(["rest", "api6"]).default("rest"),
   apiPort: z.number().int().min(1).max(65535).optional(),
   siteId: z.string().optional(),
+  /** Create a brand-new site/town on the fly (used instead of siteId). */
+  newSiteName: z.string().min(2).max(80).optional(),
 });
+
+function slugify(name: string) {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 36) || "site"
+  );
+}
+
+/**
+ * Site to attach a router/ISP to: an existing one by id, a brand-new one
+ * by name (created on the spot, slug made unique), or the main site.
+ */
+async function resolveSiteId(siteId?: string, newSiteName?: string): Promise<string> {
+  const sql = await getSql();
+  const name = newSiteName?.trim();
+  if (name) {
+    const same = await sql<{ id: string }>`
+      select id from sites where lower(name) = ${name.toLowerCase()} limit 1
+    `;
+    if (same[0]) return same[0].id;
+    const base = slugify(name);
+    let slug = base;
+    for (let i = 2; i < 50; i++) {
+      const taken = await sql<{ id: string }>`select id from sites where slug = ${slug} limit 1`;
+      if (!taken[0]) break;
+      slug = `${base}-${i}`;
+    }
+    const id = `site_${Date.now().toString(36)}`;
+    await sql`insert into sites (id, name, slug, status) values (${id}, ${name}, ${slug}, 'ACTIVE')`;
+    await logEvent("SITE", `${name} (${slug}) added as a site.`);
+    return id;
+  }
+  if (siteId) {
+    const ok = await sql<{ id: string }>`select id from sites where id = ${siteId} limit 1`;
+    if (ok[0]) return siteId;
+  }
+  return "site_default";
+}
 
 async function syncPrimaryToSettings() {
   const sql = await getSql();
@@ -923,7 +1216,7 @@ export const saveMikroTik = createServerFn({ method: "POST" })
       await sql`update mikrotiks set is_primary = false, updated_at = now()`;
     }
 
-    const siteId = data.siteId || "site_default";
+    const siteId = await resolveSiteId(data.siteId, data.newSiteName);
 
     await sql`
       insert into mikrotiks (
@@ -987,11 +1280,15 @@ export const testMikroTik = createServerFn({ method: "POST" })
         hotspotName: z.string().optional(),
         ssl: z.boolean().optional(),
         insecureTls: z.boolean().optional(),
+        apiMode: z.enum(["rest", "api6"]).optional(),
+        apiPort: z.number().int().min(1).max(65535).optional(),
       })
       .parse(data),
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
+    let apiMode: "rest" | "api6" = data.apiMode ?? "rest";
+    let apiPort: number | undefined = data.apiPort;
     let host = data.host
       ? normalizeRouterHost(data.host, data.ssl ?? false, data.port)
       : "";
@@ -1009,12 +1306,16 @@ export const testMikroTik = createServerFn({ method: "POST" })
           hotspot_name: string;
           ssl: boolean;
           insecure_tls: boolean;
+          api_mode: string | null;
+          api_port: number | null;
         }>`
-          select host, api_user, api_password, hotspot_name, ssl, insecure_tls
+          select host, api_user, api_password, hotspot_name, ssl, insecure_tls, api_mode, api_port
           from mikrotiks where id = ${data.id} limit 1
         `
       )[0];
       if (!row) return { ok: false as const, error: "Router not found." };
+      apiMode = data.apiMode ?? (row.api_mode === "api6" ? "api6" : "rest");
+      apiPort = data.apiPort ?? (row.api_port != null ? Number(row.api_port) : undefined);
       host = data.host
         ? normalizeRouterHost(data.host, data.ssl ?? Boolean(row.ssl), data.port)
         : String(row.host);
@@ -1028,7 +1329,15 @@ export const testMikroTik = createServerFn({ method: "POST" })
       return { ok: false as const, error: "Host, user and password are required." };
     }
 
-    const probe = await probeRouter({ host, user, password, hotspot, insecureTls, apiMode: "rest" });
+    const probe = await probeRouter({
+      host,
+      user,
+      password,
+      hotspot,
+      insecureTls,
+      apiMode,
+      apiPort: apiMode === "api6" ? apiPort || 8728 : undefined,
+    });
     if (data.id) await persistProbe(data.id, probe);
     return probe.ok
       ? { ok: true as const, probe }
@@ -1046,8 +1355,10 @@ export const refreshMikroTiks = createServerFn({ method: "POST" })
       api_password: string;
       hotspot_name: string;
       insecure_tls: boolean;
+      api_mode: string | null;
+      api_port: number | null;
     }>`
-      select id, host, api_user, api_password, hotspot_name, insecure_tls
+      select id, host, api_user, api_password, hotspot_name, insecure_tls, api_mode, api_port
       from mikrotiks
       order by is_primary desc, created_at
     `;
@@ -1059,7 +1370,8 @@ export const refreshMikroTiks = createServerFn({ method: "POST" })
         password: String(row.api_password),
         hotspot: String(row.hotspot_name || "hotspot1"),
         insecureTls: Boolean(row.insecure_tls),
-        apiMode: "rest",
+        apiMode: row.api_mode === "api6" ? "api6" : "rest",
+        apiPort: row.api_mode === "api6" ? Number(row.api_port) || 8728 : undefined,
       });
       await persistProbe(row.id, probe);
       if (probe.ok) online += 1;
@@ -1150,6 +1462,7 @@ export const saveIsp = createServerFn({ method: "POST" })
         perUserMaxKbps: z.number().int().min(256).max(100_000).optional(),
         maxUsers: z.number().int().min(1).max(500).optional(),
         siteId: z.string().optional(),
+        newSiteName: z.string().min(2).max(80).optional(),
       })
       .parse(data),
   )
@@ -1162,7 +1475,16 @@ export const saveIsp = createServerFn({ method: "POST" })
     const total = data.totalKbps ?? 30720;
     const perUser = data.perUserMaxKbps ?? 5120;
     const maxUsers = data.maxUsers ?? 25;
-    const siteId = data.siteId || "site_default";
+    // An ISP path hangs off a router, so it lives in that router's site.
+    // Only an ISP with no router picks its own site.
+    let siteId = await resolveSiteId(data.siteId, data.newSiteName);
+    if (data.mikrotikId) {
+      const owner = await sql<{ site_id: string | null }>`
+        select site_id from mikrotiks where id = ${data.mikrotikId} limit 1
+      `;
+      if (!owner[0]) return { ok: false as const, error: "That router no longer exists." };
+      siteId = owner[0].site_id || "site_default";
+    }
     await sql`
       insert into isps (
         id, name, type, interface_name, status, sort_order, mikrotik_id,
@@ -1301,6 +1623,287 @@ export const setSiteStatus = createServerFn({ method: "POST" })
       "SITE",
       `${row.name} was ${data.status === "ACTIVE" ? "reactivated" : "deactivated"}.`,
     );
+    return { ok: true as const };
+  });
+
+/**
+ * Site mapping: for every site/town, which routers, ISP paths and packages
+ * belong to it. Packages with no site are sold everywhere.
+ */
+export const getSiteMap = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const sql = await getSql();
+    const [sites, routers, isps, packages] = await Promise.all([
+      sql<SqlRow>`select * from sites order by (id = 'site_default') desc, name`,
+      sql<SqlRow>`select id, name, status, is_primary, site_id from mikrotiks order by is_primary desc, name`,
+      sql<SqlRow>`select id, name, type, status, mikrotik_id, site_id from isps order by sort_order`,
+      sql<SqlRow>`select id, name, status, price, site_id from packages order by sort_order, price`,
+    ]);
+    const norm = (v: unknown) => (v ? String(v) : "site_default");
+    return {
+      sites: sites.map((row) => {
+        const site = mapSite(row);
+        return {
+          site,
+          routers: routers
+            .filter((r) => norm(r.site_id) === site.id)
+            .map((r) => ({
+              id: String(r.id),
+              name: String(r.name),
+              status: String(r.status),
+              isPrimary: Boolean(r.is_primary),
+              isps: isps
+                .filter((i) => i.mikrotik_id && String(i.mikrotik_id) === String(r.id))
+                .map((i) => ({ id: String(i.id), name: String(i.name), type: String(i.type), status: String(i.status) })),
+            })),
+          // ISPs not tied to a router but assigned to this site
+          looseIsps: isps
+            .filter((i) => !i.mikrotik_id && norm(i.site_id) === site.id)
+            .map((i) => ({ id: String(i.id), name: String(i.name), type: String(i.type), status: String(i.status) })),
+          packages: packages
+            .filter((p) => p.site_id && String(p.site_id) === site.id)
+            .map((p) => ({ id: String(p.id), name: String(p.name), status: String(p.status), price: Number(p.price) })),
+        };
+      }),
+      globalPackages: packages
+        .filter((p) => !p.site_id)
+        .map((p) => ({ id: String(p.id), name: String(p.name), status: String(p.status), price: Number(p.price) })),
+    };
+  });
+
+// --- Network map ---------------------------------------------------------
+
+const AP_IP = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+function rollUp(states: HealthState[]): HealthState {
+  if (states.length === 0) return "UNKNOWN";
+  if (states.includes("OFFLINE") && states.every((x) => x === "OFFLINE")) return "OFFLINE";
+  if (states.some((x) => x === "OFFLINE" || x === "WARNING")) return "WARNING";
+  if (states.every((x) => x === "UNKNOWN")) return "UNKNOWN";
+  return "ONLINE";
+}
+
+async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
+  const sql = await getSql();
+  const [sitesRaw, routersRaw, ispsRaw, apsRaw] = await Promise.all([
+    sql<SqlRow>`select * from sites order by (id = 'site_default') desc, name`,
+    sql<SqlRow>`select * from mikrotiks order by is_primary desc, created_at`,
+    sql<SqlRow>`select * from isps order by sort_order`,
+    sql<SqlRow>`select * from access_points order by name`,
+  ]);
+  const allSites = sitesRaw.map(mapSite);
+  const siteOf = (id: unknown) => (id ? String(id) : "site_default");
+
+  const routers: MapRouter[] = routersRaw.map((row) => {
+    let live: LiveSnapshot | null = null;
+    try {
+      live = row.live_json ? (JSON.parse(String(row.live_json)) as LiveSnapshot) : null;
+    } catch {
+      live = null;
+    }
+    const mt = mapMikroTik(row);
+    const site = allSites.find((x) => x.id === siteOf(row.site_id));
+    const isps = ispsRaw
+      .filter((i) => i.mikrotik_id && String(i.mikrotik_id) === mt.id)
+      .map((i) => ({
+        id: String(i.id),
+        name: String(i.name),
+        type: String(i.type),
+        status: String(i.status),
+        interfaceName: i.interface_name ? String(i.interface_name) : null,
+      }));
+
+    // Router health. Green = online & healthy, yellow = reachable but
+    // strained (high CPU/RAM, a degraded/down ISP path, or a misbehaving AP),
+    // red = unreachable.
+    const memPct =
+      live?.memTotal && live.memFree != null
+        ? Math.round(((live.memTotal - live.memFree) / live.memTotal) * 100)
+        : null;
+    const cpu = live?.cpuLoad ?? mt.cpuLoad;
+    const reasons: string[] = [];
+    if (cpu != null && cpu >= 85) reasons.push(`CPU at ${cpu}%`);
+    if (memPct != null && memPct >= 90) reasons.push(`Memory at ${memPct}%`);
+    for (const i of isps) if (i.status !== "ONLINE") reasons.push(`${i.name} is ${i.status.toLowerCase()}`);
+
+    const manual: AccessPointRow[] = apsRaw
+      .filter((a) => String(a.mikrotik_id) === mt.id)
+      .map((a) => ({
+        id: String(a.id),
+        manual: true,
+        name: String(a.name),
+        ip: a.ip_address ? String(a.ip_address) : null,
+        mac: a.mac_address ? String(a.mac_address) : null,
+        model: a.model ? String(a.model) : null,
+        port: a.port ? String(a.port) : null,
+        notes: a.notes ? String(a.notes) : null,
+        status: (["ONLINE", "WARNING", "OFFLINE", "UNKNOWN"].includes(String(a.status)) ? String(a.status) : "UNKNOWN") as HealthState,
+        latencyMs: a.latency_ms == null ? null : Number(a.latency_ms),
+        clients: a.clients == null ? null : Number(a.clients),
+        signalDbm: null,
+        checkedAt: a.checked_at ? iso(a.checked_at) : null,
+      }));
+    // The router's own wifi radios show up automatically (real signal data).
+    const radios: AccessPointRow[] = (live?.radios ?? []).map((r) => {
+      const p = live!.ports.find((x) => x.name === r.name);
+      return {
+        id: `radio:${mt.id}:${r.name}`,
+        manual: false,
+        name: `${mt.name} · ${r.name}`,
+        ip: null,
+        mac: null,
+        model: "Built-in radio",
+        port: r.name,
+        notes: null,
+        status: (p?.running ? "ONLINE" : "OFFLINE") as HealthState,
+        latencyMs: null,
+        clients: r.clients,
+        signalDbm: r.signalDbm,
+        checkedAt: live!.at,
+      };
+    });
+    const aps = [...radios, ...manual];
+    if (aps.some((a) => a.status === "OFFLINE" || a.status === "WARNING")) reasons.push("An access point needs attention");
+
+    const liveIsRecent = live ? Date.now() - new Date(live.at).getTime() < 120_000 : false;
+    const unreachable = mt.status === "OFFLINE" || Boolean(live?.error && liveIsRecent);
+    const state: HealthState = unreachable
+      ? "OFFLINE"
+      : mt.status === "ONLINE"
+        ? reasons.length > 0
+          ? "WARNING"
+          : "ONLINE"
+        : "UNKNOWN";
+    return {
+      id: mt.id,
+      name: mt.name,
+      host: mt.host,
+      isPrimary: mt.isPrimary,
+      siteId: siteOf(row.site_id),
+      siteName: site?.name ?? "Main site",
+      state,
+      stateReason: unreachable ? (mt.lastError ?? live?.error ?? "Router unreachable") : reasons[0] ?? null,
+      boardName: mt.boardName,
+      version: mt.version,
+      identity: mt.identity,
+      live,
+      isps,
+      aps: unreachable ? aps.map((a) => ({ ...a, status: "UNKNOWN" as HealthState })) : aps,
+    };
+  });
+
+  const scopedSites = allSites.filter((x) => !siteId || x.id === siteId);
+  const sites: MapSite[] = scopedSites.map((site) => {
+    const rs = routers.filter((r) => r.siteId === site.id);
+    return { site, state: rollUp(rs.map((r) => r.state)), routers: rs };
+  });
+  const visible = sites.flatMap((x) => x.routers);
+  const aps = visible.flatMap((r) => r.aps);
+  const count = <T extends { state: HealthState }>(rows: T[], st: HealthState) => rows.filter((r) => r.state === st).length;
+  return {
+    generatedAt: new Date().toISOString(),
+    sites,
+    allSites,
+    totals: {
+      routers: { online: count(visible, "ONLINE"), warning: count(visible, "WARNING"), offline: count(visible, "OFFLINE") },
+      aps: {
+        online: aps.filter((a) => a.status === "ONLINE").length,
+        warning: aps.filter((a) => a.status === "WARNING").length,
+        offline: aps.filter((a) => a.status === "OFFLINE").length,
+        unknown: aps.filter((a) => a.status === "UNKNOWN").length,
+      },
+      activeUsers: visible.reduce((s, r) => s + (r.live?.activeUsers ?? 0), 0),
+      rxBps: visible.reduce((s, r) => s + (r.live?.rxBps ?? 0), 0),
+      txBps: visible.reduce((s, r) => s + (r.live?.txBps ?? 0), 0),
+    },
+  };
+}
+
+/**
+ * refresh=true reads the routers now (a snapshot younger than 5 s is reused
+ * so several open screens don't hammer them); false just returns what's stored.
+ */
+export const getNetworkMap = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z.object({ siteId: z.string().optional(), refresh: z.boolean().optional() }).parse(data ?? {}),
+  )
+  .handler(async ({ data }) => {
+    if (data.refresh) {
+      const results = await refreshNetworkLive({ maxAgeMs: 5000 }).catch(() => []);
+      // Keep the router's stored status in step with what we just read, through
+      // the same path the Network page uses (so recovery auto-resume still fires).
+      const sql = await getSql();
+      for (const r of results.filter((x) => x.fresh)) {
+        const row = (
+          await sql<{ identity: string | null; version: string | null; board_name: string | null; uptime: string | null }>`
+            select identity, version, board_name, uptime from mikrotiks where id = ${r.id} limit 1
+          `
+        )[0];
+        if (!row) continue;
+        await persistProbe(r.id, {
+          ok: !r.live.error,
+          identity: row.identity,
+          version: row.version,
+          boardName: row.board_name,
+          uptime: r.live.error ? null : (r.live.uptime ?? row.uptime),
+          cpuLoad: r.live.error ? null : r.live.cpuLoad,
+          hotspotServers: [],
+          interfaces: r.live.ports.slice(0, 16).map((p) => ({ name: p.name, type: p.type, running: p.running })),
+          error: r.live.error,
+        }).catch(() => {});
+      }
+    }
+    return buildNetworkMap(normSite(data.siteId));
+  });
+
+export const saveAccessPoint = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z
+      .object({
+        id: z.string().optional(),
+        mikrotikId: z.string(),
+        name: z.string().min(2).max(60),
+        ip: z.string().max(45).optional(),
+        mac: z.string().max(20).optional(),
+        model: z.string().max(60).optional(),
+        port: z.string().max(40).optional(),
+        notes: z.string().max(300).optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    const ip = data.ip?.trim() || null;
+    const mac = data.mac?.trim().toUpperCase() || null;
+    if (ip && !AP_IP.test(ip)) return { ok: false as const, error: "Enter a valid IPv4 address, e.g. 192.168.88.20." };
+    if (mac && !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) return { ok: false as const, error: "MAC must look like AA:BB:CC:DD:EE:FF." };
+    if (!ip && !mac) return { ok: false as const, error: "Give the AP's IP address (best) or its MAC so its status can be checked." };
+    const router = await sql<{ id: string }>`select id from mikrotiks where id = ${data.mikrotikId} limit 1`;
+    if (!router[0]) return { ok: false as const, error: "Choose the MikroTik this AP connects to." };
+    const id = data.id ?? nid("ap");
+    await sql`
+      insert into access_points (id, mikrotik_id, name, ip_address, mac_address, model, port, notes)
+      values (${id}, ${data.mikrotikId}, ${data.name.trim()}, ${ip}, ${mac}, ${data.model?.trim() || null}, ${data.port?.trim() || null}, ${data.notes?.trim() || null})
+      on conflict (id) do update set
+        mikrotik_id = excluded.mikrotik_id, name = excluded.name, ip_address = excluded.ip_address,
+        mac_address = excluded.mac_address, model = excluded.model, port = excluded.port,
+        notes = excluded.notes, status = 'UNKNOWN', updated_at = now()
+    `;
+    await logEvent("AP", `Access point ${data.name.trim()} ${data.id ? "updated" : "added"}.`);
+    // Check it straight away so it doesn't sit grey until the next refresh.
+    await refreshNetworkLive({ routerId: data.mikrotikId }).catch(() => {});
+    return { ok: true as const, id };
+  });
+
+export const deleteAccessPoint = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ id: z.string() }).parse(data))
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    await sql`delete from access_points where id = ${data.id}`;
     return { ok: true as const };
   });
 

@@ -99,6 +99,13 @@ export type Settings = {
   welcomeBonusMinutes: number;
   referralMinPackagePrice: number;
   studentBlockedDomains: string;
+  /** RADIUS (multi-AP). The shared secret itself is never sent to the browser. */
+  radiusEnabled: boolean;
+  hasRadiusSecret: boolean;
+  radiusAuthPort: number;
+  radiusAcctPort: number;
+  /** Address MikroTik routers use to reach this app's RADIUS listener. */
+  radiusServerHost: string | null;
 };
 
 export type Customer = {
@@ -187,6 +194,8 @@ export type MikroTik = {
   camouflageAppliedAt: string | null;
   createdAt: string;
   siteId: string | null;
+  apiMode: RouterOsMode;
+  apiPort: number | null;
 };
 
 export type RouterProbe = {
@@ -220,3 +229,101 @@ export type ActiveAccess = {
   connected: boolean;
   otherDevice: boolean;
 } | null;
+
+// ---- Network map ---------------------------------------------------------
+
+export type HealthState = "ONLINE" | "WARNING" | "OFFLINE" | "UNKNOWN";
+
+export type LivePort = {
+  name: string;
+  type: string;
+  running: boolean;
+  disabled: boolean;
+  comment: string | null;
+  ip: string | null;
+  rxBytes: number;
+  txBytes: number;
+  /** bits per second since the previous refresh (null on the first sample) */
+  rxBps: number | null;
+  txBps: number | null;
+  /** hotspot clients seen behind this port (bridge host table) */
+  clients: number | null;
+};
+
+export type LiveNeighbor = {
+  name: string;
+  ip: string | null;
+  mac: string | null;
+  port: string | null;
+  model: string | null;
+};
+
+export type LiveRadio = { name: string; clients: number; signalDbm: number | null };
+
+export type LiveSnapshot = {
+  at: string;
+  error: string | null;
+  cpuLoad: number | null;
+  memTotal: number | null;
+  memFree: number | null;
+  uptime: string | null;
+  activeUsers: number | null;
+  rxBps: number | null;
+  txBps: number | null;
+  ports: LivePort[];
+  neighbors: LiveNeighbor[];
+  radios: LiveRadio[];
+};
+
+export type AccessPointRow = {
+  id: string;
+  /** false = the router's own built-in radio (read-only, auto-detected) */
+  manual: boolean;
+  name: string;
+  ip: string | null;
+  mac: string | null;
+  model: string | null;
+  port: string | null;
+  notes: string | null;
+  status: HealthState;
+  latencyMs: number | null;
+  clients: number | null;
+  signalDbm: number | null;
+  checkedAt: string | null;
+};
+
+export type MapRouter = {
+  id: string;
+  name: string;
+  host: string;
+  isPrimary: boolean;
+  siteId: string;
+  siteName: string;
+  state: HealthState;
+  stateReason: string | null;
+  boardName: string | null;
+  version: string | null;
+  identity: string | null;
+  live: LiveSnapshot | null;
+  isps: { id: string; name: string; type: string; status: string; interfaceName: string | null }[];
+  aps: AccessPointRow[];
+};
+
+export type MapSite = {
+  site: Site;
+  state: HealthState;
+  routers: MapRouter[];
+};
+
+export type NetworkMapData = {
+  generatedAt: string;
+  sites: MapSite[];
+  allSites: Site[];
+  totals: {
+    routers: { online: number; warning: number; offline: number };
+    aps: { online: number; warning: number; offline: number; unknown: number };
+    activeUsers: number;
+    rxBps: number;
+    txBps: number;
+  };
+};

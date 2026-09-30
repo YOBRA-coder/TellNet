@@ -359,7 +359,7 @@ function PackagesAdminPage() {
                 </p>
               </Field>
 
-              {sites.length > 1 && (
+              {true && (
                 <Field label="Site">
                   <select
                     className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"

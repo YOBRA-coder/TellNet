@@ -5,6 +5,7 @@ import { getSettingsSecret } from "./settings.server";
 import { normalizeRouterHost } from "@/lib/mikrotik-host";
 import {
   apiProbe,
+  apiCall,
   apiUpsertHotspotUser,
   apiDisableUser,
   apiDisconnectUser,
@@ -866,5 +867,232 @@ export async function applyCamouflage(input: {
           ? err.message
           : "Could not reach the router. Use the Terminal script.",
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RADIUS (multi-AP) on the router
+// ---------------------------------------------------------------------------
+
+export type RadiusRouterConfig = {
+  enabled: boolean;
+  address: string;
+  secret: string;
+  authPort: number;
+  acctPort: number;
+};
+
+export type RadiusRouterCheck = {
+  reachable: boolean;
+  /** A /radius entry tagged telnet-radius exists on the router. */
+  entryFound: boolean;
+  addressMatches: boolean;
+  /** The router's stored secret equals the one saved in Settings. */
+  secretMatches: boolean;
+  portsMatch: boolean;
+  entryDisabled: boolean;
+  /** The hotspot server profile has use-radius=yes. null = couldn't read it. */
+  hotspotUsesRadius: boolean | null;
+  hotspotProfile: string | null;
+  error: string | null;
+};
+
+const RADIUS_COMMENT = "telnet-radius";
+
+function truthy(v: unknown) {
+  return v === true || v === "true" || v === "yes";
+}
+
+/** REST or binary-API read of the router's radius entry + hotspot profile. */
+async function readRadiusState(creds: RouterCreds) {
+  if (creds.apiMode === "api6") {
+    const api = {
+      host: creds.host,
+      port: creds.apiPort || 8728,
+      user: creds.user,
+      password: creds.password,
+    };
+    const radius = (await apiCall(api, [["/radius/print"]])).filter((r) => r.type === "re");
+    const servers = (await apiCall(api, [["/ip/hotspot/print"]])).filter((r) => r.type === "re");
+    const server = servers.find((s) => s.attrs.name === creds.hotspot) ?? servers[0];
+    const profiles = (await apiCall(api, [["/ip/hotspot/profile/print"]])).filter(
+      (r) => r.type === "re",
+    );
+    const profile = profiles.find((p) => p.attrs.name === (server?.attrs.profile ?? "default"));
+    return {
+      radius: radius.map((r) => ({ ...r.attrs }) as Record<string, string>),
+      profileName: (server?.attrs.profile as string | undefined) ?? null,
+      profile: profile ? ({ ...profile.attrs } as Record<string, string>) : null,
+    };
+  }
+  const radius = ((await routeros("/rest/radius", {}, creds)) ?? []) as Array<Record<string, string>>;
+  const servers = ((await routeros("/rest/ip/hotspot", {}, creds)) ?? []) as Array<
+    Record<string, string>
+  >;
+  const server = servers.find((s) => s.name === creds.hotspot) ?? servers[0];
+  const profiles = ((await routeros("/rest/ip/hotspot/profile", {}, creds)) ?? []) as Array<
+    Record<string, string>
+  >;
+  const profile = profiles.find((p) => p.name === (server?.profile ?? "default")) ?? null;
+  return { radius, profileName: server?.profile ?? null, profile };
+}
+
+export async function checkRadiusOnRouter(
+  creds: RouterCreds,
+  cfg: RadiusRouterConfig,
+): Promise<RadiusRouterCheck> {
+  const out: RadiusRouterCheck = {
+    reachable: false,
+    entryFound: false,
+    addressMatches: false,
+    secretMatches: false,
+    portsMatch: false,
+    entryDisabled: false,
+    hotspotUsesRadius: null,
+    hotspotProfile: null,
+    error: null,
+  };
+  try {
+    const st = await readRadiusState(creds);
+    out.reachable = true;
+    out.hotspotProfile = st.profileName;
+    out.hotspotUsesRadius = st.profile ? truthy(st.profile["use-radius"]) : null;
+    const entry = st.radius.find((r) => r.comment === RADIUS_COMMENT);
+    if (entry) {
+      out.entryFound = true;
+      out.entryDisabled = truthy(entry.disabled);
+      out.addressMatches = entry.address === cfg.address;
+      out.secretMatches = entry.secret === cfg.secret;
+      out.portsMatch =
+        String(entry["authentication-port"] ?? "1812") === String(cfg.authPort) &&
+        String(entry["accounting-port"] ?? "1813") === String(cfg.acctPort);
+    }
+  } catch (err) {
+    out.error =
+      err instanceof MikroTikError || err instanceof Error
+        ? err.message
+        : "Could not reach the router.";
+  }
+  return out;
+}
+
+/**
+ * Point a router's hotspot at this app's RADIUS listener:
+ *   /radius add service=hotspot address=<host> secret=<secret> ...
+ *   /ip hotspot profile set <server's profile> use-radius=yes
+ * Turning RADIUS off disables the entry and sets use-radius=no.
+ * Local hotspot users keep working either way (RouterOS checks them first).
+ */
+export async function applyRadiusToRouter(
+  creds: RouterCreds,
+  cfg: RadiusRouterConfig,
+): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    const st = await readRadiusState(creds);
+    const entry = st.radius.find((r) => r.comment === RADIUS_COMMENT);
+    const id = (entry?.[".id"] as string | undefined) ?? null;
+    const body = {
+      service: "hotspot",
+      address: cfg.address,
+      secret: cfg.secret,
+      "authentication-port": String(cfg.authPort),
+      "accounting-port": String(cfg.acctPort),
+      timeout: "3s",
+      comment: RADIUS_COMMENT,
+      disabled: cfg.enabled ? "false" : "true",
+    };
+    const useRadius = cfg.enabled ? "yes" : "no";
+
+    if (creds.apiMode === "api6") {
+      const api = {
+        host: creds.host,
+        port: creds.apiPort || 8728,
+        user: creds.user,
+        password: creds.password,
+      };
+      const words = Object.entries(body).map(([k, v]) => `=${k}=${v}`);
+      if (id) await apiCall(api, [["/radius/set", `=.id=${id}`, ...words]]);
+      else if (cfg.enabled) await apiCall(api, [["/radius/add", ...words]]);
+      const pid = st.profile?.[".id"];
+      if (pid) {
+        await apiCall(api, [["/ip/hotspot/profile/set", `=.id=${pid}`, `=use-radius=${useRadius}`]]);
+      }
+      return { ok: true, error: null };
+    }
+
+    if (id) {
+      await routeros(
+        `/rest/radius/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(body) },
+        creds,
+      );
+    } else if (cfg.enabled) {
+      await routeros("/rest/radius", { method: "PUT", body: JSON.stringify(body) }, creds);
+    }
+    const pid = st.profile?.[".id"];
+    if (pid) {
+      await routeros(
+        `/rest/ip/hotspot/profile/${encodeURIComponent(pid)}`,
+        { method: "PATCH", body: JSON.stringify({ "use-radius": useRadius }) },
+        creds,
+      );
+    }
+    return { ok: true, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Router rejected the RADIUS settings.",
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generic read helpers (used by the network map)
+// ---------------------------------------------------------------------------
+
+/** Read a RouterOS menu (e.g. "/interface") as a list of attribute maps, REST or binary API. */
+export async function rosList(creds: RouterCreds, path: string): Promise<Array<Record<string, string>>> {
+  if (creds.apiMode === "api6") {
+    const rows = await apiCall(
+      { host: creds.host, port: creds.apiPort || 8728, user: creds.user, password: creds.password },
+      [[`${path}/print`]],
+    );
+    return rows.filter((r) => r.type === "re").map((r) => ({ ...r.attrs }) as Record<string, string>);
+  }
+  const out = await routeros(`/rest${path}`, {}, creds);
+  if (Array.isArray(out)) return out as Array<Record<string, string>>;
+  return out ? [out as Record<string, string>] : [];
+}
+
+export type PingResult = { ok: boolean; lossPct: number; avgMs: number | null };
+
+/** Ping an address FROM the router (so it works for APs on private LAN ranges). */
+export async function rosPing(creds: RouterCreds, address: string): Promise<PingResult> {
+  const summarize = (rows: Array<Record<string, string>>): PingResult => {
+    const last = rows[rows.length - 1] ?? {};
+    const sent = Number(last.sent ?? rows.length) || 0;
+    const received = Number(last.received ?? rows.filter((r) => r.time || r.status === undefined).length) || 0;
+    const loss = last["packet-loss"] != null ? Number(last["packet-loss"]) : sent > 0 ? ((sent - received) / sent) * 100 : 100;
+    const avg = last["avg-rtt"] ?? last.time ?? null;
+    const avgMs = avg == null ? null : Number.parseFloat(String(avg).replace(/[^0-9.]/g, "")) || null;
+    return { ok: received > 0, lossPct: Math.max(0, Math.min(100, Math.round(loss))), avgMs };
+  };
+  try {
+    if (creds.apiMode === "api6") {
+      const rows = await apiCall(
+        { host: creds.host, port: creds.apiPort || 8728, user: creds.user, password: creds.password },
+        [["/ping", `=address=${address}`, "=count=2"]],
+        9000,
+      );
+      return summarize(rows.filter((r) => r.type === "re").map((r) => ({ ...r.attrs }) as Record<string, string>));
+    }
+    const out = await routeros(
+      "/rest/ping",
+      { method: "POST", body: JSON.stringify({ address, count: "2" }) },
+      creds,
+    );
+    return summarize(Array.isArray(out) ? (out as Array<Record<string, string>>) : []);
+  } catch {
+    return { ok: false, lossPct: 100, avgMs: null };
   }
 }

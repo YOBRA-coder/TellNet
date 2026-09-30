@@ -249,3 +249,14 @@ if (typeof window === "undefined") {
     console.error("[db] router-watch failed to start:", err);
   });
 }
+
+// Server-only eager start: bring up the RADIUS (multi-AP) UDP listener if it
+// is enabled in Settings. Same reasoning as router-watch above — a lazy
+// import so this module never depends on it at load time.
+if (typeof window === "undefined") {
+  setTimeout(() => {
+    import("./services/radius-listener.server")
+      .then((m) => m.syncRadiusListener())
+      .catch((err) => console.error("[db] radius listener failed to start:", err));
+  }, 3000);
+}

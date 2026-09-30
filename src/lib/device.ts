@@ -53,3 +53,20 @@ export function deviceInfo(): string {
   if (typeof navigator === "undefined") return "Captive portal";
   return navigator.userAgent.slice(0, 80);
 }
+
+const SITE_KEY = "telnet.site";
+
+/** The site/town slug from the router's portal link (?site=slug), remembered on this device. */
+export function readSite(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("site");
+    if (fromUrl) {
+      localStorage.setItem(SITE_KEY, fromUrl);
+      return fromUrl;
+    }
+    return localStorage.getItem(SITE_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}

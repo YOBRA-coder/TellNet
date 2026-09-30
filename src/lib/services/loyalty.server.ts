@@ -37,8 +37,12 @@ export async function findCustomerByReferralCode(
   const sql = await getSql();
   const trimmed = code.trim().toUpperCase();
   if (!trimmed) return null;
+  // Only registered customers hold a referral code, but guard anyway so a
+  // stale code on an unregistered row can never pay out.
   const rows = await sql<{ id: string }>`
-    select id from customers where referral_code = ${trimmed} limit 1
+    select id from customers
+    where referral_code = ${trimmed} and registered_at is not null and deleted_at is null
+    limit 1
   `;
   return rows[0] ?? null;
 }
@@ -71,6 +75,14 @@ export async function awardLoyaltyForPayment(paymentId: string): Promise<void> {
   `;
   const payment = claimed[0];
   if (!payment) return; // already awarded, or payment not found
+
+  // Loyalty points are a members-only perk: guests (no PIN/password set)
+  // earn nothing. The claim above is already spent, so a guest's payment
+  // is never retroactively rewarded if they register later.
+  const member = await sql<{ registered_at: string | null }>`
+    select registered_at from customers where id = ${payment.customer_id} limit 1
+  `;
+  if (!member[0]?.registered_at) return;
 
   const points = Math.max(
     0,
@@ -304,6 +316,12 @@ export async function redeemPointsForPackage(input: {
   if (!customer) return { ok: false, error: "Customer not found." };
   if (customer.status === "BLOCKED") {
     return { ok: false, error: "This account is blocked. Contact the operator." };
+  }
+  const reg = await sql<{ registered_at: string | null }>`
+    select registered_at from customers where id = ${input.customerId} limit 1
+  `;
+  if (!reg[0]?.registered_at) {
+    return { ok: false, error: "Sign up for an account to earn and redeem loyalty points." };
   }
   if (Number(customer.loyalty_points) < cost) {
     return { ok: false, error: `You need ${cost} points — you have ${customer.loyalty_points}.` };

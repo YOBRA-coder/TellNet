@@ -3,6 +3,7 @@ import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { PackageCard } from "@/components/portal/package-card";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { useDevice } from "@/hooks/use-device";
+import { readSite } from "@/lib/device";
 import { getPortalBootstrap } from "@/lib/fn/portal";
 import type { Package } from "@/lib/types";
 
@@ -16,11 +17,11 @@ function PackagesPage() {
   const catalog = portalRoute.useLoaderData();
   const { device, ready } = useDevice();
   const q = useQuery({
-    queryKey: ["portal", device?.token],
+    queryKey: ["portal", device?.token, readSite() ?? ""],
     enabled: ready && Boolean(device),
     queryFn: () =>
       getPortalBootstrap({
-        data: { token: device!.token, phone: device?.phone ?? undefined },
+        data: { token: device!.token, phone: device?.phone ?? undefined, site: readSite() },
       }),
   });
 

@@ -11,6 +11,8 @@ import {
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import { getReports } from "@/lib/fn/admin";
+import { SiteSwitcher } from "@/components/admin/site-switcher";
+import { useAdminSite } from "@/hooks/use-admin-site";
 import { formatKes } from "@/lib/format";
 
 export const Route = createFileRoute("/admin/reports")({
@@ -18,17 +20,24 @@ export const Route = createFileRoute("/admin/reports")({
 });
 
 function ReportsPage() {
-  const q = useQuery({ queryKey: ["reports"], queryFn: () => getReports() });
+  const [siteId] = useAdminSite();
+  const q = useQuery({
+    queryKey: ["reports", siteId],
+    queryFn: () => getReports({ data: { siteId } }),
+  });
   const d = q.data;
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Reports</h1>
         <p className="mt-1 text-sm text-muted">
           Revenue is counted from verified M-Pesa SUCCESS rows — not from frontend
           confirmations.
         </p>
+        </div>
+        <SiteSwitcher />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <Period

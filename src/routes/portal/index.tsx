@@ -5,6 +5,7 @@ import { PackageCard } from "@/components/portal/package-card";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
+import { readSite } from "@/lib/device";
 import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { getPortalBootstrap } from "@/lib/fn/portal";
@@ -18,7 +19,7 @@ function PortalHome() {
   const catalog = portalRoute.useLoaderData();
   const { device, ready, update } = useDevice();
   const q = useQuery({
-    queryKey: ["portal", device?.token],
+    queryKey: ["portal", device?.token, readSite() ?? ""],
     enabled: ready && Boolean(device),
     queryFn: () =>
       getPortalBootstrap({
@@ -26,6 +27,7 @@ function PortalHome() {
           token: device!.token,
           phone: device?.phone ?? undefined,
           customerId: device?.customerId ?? undefined,
+          site: readSite(),
         },
       }),
   });
@@ -73,6 +75,14 @@ function PortalHome() {
     }
     return (
       <PortalShell hotspotName={hotspot}>
+      {(q.data?.unreadNotices ?? 0) > 0 ? (
+        <Link
+          to="/portal/rewards"
+          className="mb-4 block rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok"
+        >
+          🎉 You have {q.data?.unreadNotices} new reward alert{q.data?.unreadNotices === 1 ? "" : "s"} — tap to view
+        </Link>
+      ) : null}
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
           Welcome back
         </p>
@@ -118,12 +128,27 @@ function PortalHome() {
           <Link to="/portal/voucher" className="text-muted hover:text-fg">
             Have a voucher code?
           </Link>
+          <Link
+            to="/portal/auth"
+            search={{ mode: "signin", ref: "", next: "/portal/rewards" }}
+            className="text-muted hover:text-fg"
+          >
+            Sign in / Sign up
+          </Link>
           <Link to="/portal/add-device" className="text-muted hover:text-fg">
             Add a device
           </Link>
         </div>
       }
     >
+      {(q.data?.unreadNotices ?? 0) > 0 ? (
+        <Link
+          to="/portal/rewards"
+          className="mb-4 block rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok"
+        >
+          🎉 You have {q.data?.unreadNotices} new reward alert{q.data?.unreadNotices === 1 ? "" : "s"} — tap to view
+        </Link>
+      ) : null}
       <div className="relative mx-auto mb-6 size-20">
         <span className="radar-ring" />
         <div className="absolute inset-0 m-auto flex size-12 items-center justify-center rounded-full border border-accent/30 bg-surface">

@@ -9,9 +9,15 @@ import { activateFromPayment, reconnectCustomer } from "@/lib/services/activatio
 import { expireDuePackages } from "@/lib/services/expiry.server";
 import {
   findCustomerByReferralCode,
-  generateReferralCode,
   redeemPointsForPackage,
 } from "@/lib/services/loyalty.server";
+import {
+  announceReferral,
+  getSessionCustomer,
+  signInCustomer,
+  signOutDevice,
+  signUpCustomer,
+} from "@/lib/services/customer-auth.server";
 import { getSettings, logEvent } from "@/lib/services/settings.server";
 import {
   mapCustomer,
@@ -30,13 +36,29 @@ const identitySchema = z.object({
   customerId: z.string().optional(),
 });
 
-async function loadCatalog() {
+/**
+ * Packages a portal visitor may see. A package with no site is sold
+ * everywhere; a site-scoped one only where the visitor came in through that
+ * site's router (portal URL carries ?site=<slug>). With no site given the
+ * visitor sees global packages plus the main site's.
+ */
+async function loadCatalog(siteSlug?: string | null) {
   await expireDuePackages();
   const sql = await getSql();
   const settings = await getSettings();
+  const siteRow = siteSlug
+    ? (
+        await sql<{ id: string }>`
+          select id from sites where slug = ${siteSlug} and status = 'ACTIVE' limit 1
+        `
+      )[0]
+    : null;
+  const siteId = siteRow?.id ?? "site_default";
   const packages = (
     await sql<SqlRow>`
-      select * from packages where status = 'ACTIVE' order by sort_order, price
+      select * from packages
+      where status = 'ACTIVE' and (site_id is null or site_id = ${siteId})
+      order by sort_order, price
     `
   ).map(mapPackage);
   const isps = (await sql<SqlRow>`select * from isps order by sort_order`).map(mapIsp);
@@ -62,9 +84,11 @@ async function loadCatalog() {
   };
 }
 
-export const getPortalCatalog = createServerFn({ method: "GET" }).handler(
-  async () => loadCatalog(),
-);
+export const getPortalCatalog = createServerFn({ method: "GET" })
+  .validator((data: unknown) =>
+    z.object({ site: z.string().max(40).optional() }).optional().parse(data),
+  )
+  .handler(async ({ data }) => loadCatalog(data?.site));
 
 async function findActiveForCustomer(
   customerId: string,
@@ -153,14 +177,24 @@ async function queuedPackages(
   }));
 }
 
+async function countUnreadNotices(customerId: string): Promise<number> {
+  const sql = await getSql();
+  const r = await sql<{ n: number }>`
+    select count(*)::int as n from customer_notices
+    where customer_id = ${customerId} and seen_at is null
+  `;
+  return Number(r[0]?.n ?? 0);
+}
+
 export const getPortalBootstrap = createServerFn({ method: "POST" })
-  .validator((data: unknown) => identitySchema.parse(data))
+  .validator((data: unknown) =>
+    identitySchema.extend({ site: z.string().max(40).optional() }).parse(data),
+  )
   .handler(async ({ data }) => {
-    const catalog = await loadCatalog();
+    const catalog = await loadCatalog(data.site);
     const sql = await getSql();
 
     let access: ActiveAccess = null;
-    let resolvedCustomerId: string | null = data.customerId ?? null;
     const phone = data.phone ? normalizeKenyanPhone(data.phone) : null;
 
     if (data.customerId) {
@@ -171,7 +205,6 @@ export const getPortalBootstrap = createServerFn({ method: "POST" })
         select id from customers where device_token = ${data.token} limit 1
       `;
       if (byToken[0]) {
-        resolvedCustomerId = byToken[0].id;
         access = await findActiveForCustomer(byToken[0].id, data.token);
       }
     }
@@ -180,31 +213,22 @@ export const getPortalBootstrap = createServerFn({ method: "POST" })
         select id from customers where phone = ${phone} limit 1
       `;
       if (byPhone[0]) {
-        resolvedCustomerId = byPhone[0].id;
         access = await findActiveForCustomer(byPhone[0].id, data.token);
       }
     }
 
-    let loyalty: { points: number; referralCode: string } | null = null;
-    if (
-      (catalog.settings.loyaltyEnabled || catalog.settings.referralEnabled) &&
-      resolvedCustomerId
-    ) {
-      const rows = await sql<{ loyalty_points: number; referral_code: string }>`
-        select loyalty_points, referral_code from customers where id = ${resolvedCustomerId} limit 1
-      `;
-      if (rows[0]) {
-        loyalty = {
-          points: Number(rows[0].loyalty_points ?? 0),
-          referralCode: String(rows[0].referral_code ?? ""),
-        };
-      }
-    }
+    // Who is signed in on THIS device (server-verified — the customerId a
+    // browser sends is never trusted for account data).
+    const member = await getSessionCustomer(data.token);
+    const unread = member?.registered ? await countUnreadNotices(member.id) : 0;
 
     return {
       ...catalog,
       access,
-      loyalty,
+      member: member
+        ? { id: member.id, phone: member.phone, registered: member.registered }
+        : null,
+      unreadNotices: unread,
     };
   });
 
@@ -259,6 +283,8 @@ export const startPayment = createServerFn({ method: "POST" })
         phone: z.string(),
         token: z.string().min(8),
         referralCode: z.string().max(20).optional(),
+        /** site slug from the router's portal link (?site=...) */
+        site: z.string().max(40).optional(),
       })
       .parse(data),
   )
@@ -293,30 +319,82 @@ export const startPayment = createServerFn({ method: "POST" })
         error: "This number is blocked. Please contact the hotspot operator.",
       };
     }
+    // Which town this sale belongs to: the router's portal link (?site=slug)
+    // wins, then the package's own site, then the main site. Customers and
+    // payments carry it so reports can be filtered per town.
+    let paySiteId = "site_default";
+    if (data.site) {
+      const hit = await sql<{ id: string }>`
+        select id from sites where slug = ${data.site} and status = 'ACTIVE' limit 1
+      `;
+      if (hit[0]) paySiteId = hit[0].id;
+      else if (pkg.site_id) paySiteId = String(pkg.site_id);
+    } else if (pkg.site_id) {
+      paySiteId = String(pkg.site_id);
+    }
+
+    // A referral code only counts on a qualifying package (priced above the
+    // configured minimum) — the UI hides the field below that price, but
+    // this server check is the one that actually matters.
+    const referralQualifies =
+      settings.referralEnabled && Number(pkg.price) > Number(settings.referralMinPackagePrice);
+    let referralApplied = false;
+    let referrerToNotify: string | null = null;
+    // Tell the customer up front if the code is wrong instead of silently
+    // dropping it (they'd otherwise pay and never get the bonus).
+    if (data.referralCode?.trim() && referralQualifies) {
+      const known = await findCustomerByReferralCode(data.referralCode);
+      if (!known) {
+        return { ok: false as const, error: "That referral code doesn't exist. Check it or clear the field." };
+      }
+    }
     if (!customerId) {
+      // Guests get NO referral code of their own (codes are issued at sign
+      // up) and earn no loyalty points — but they can still USE a code.
       customerId = nid("cus");
-      const referralCode = await generateReferralCode();
       let referredBy: string | null = null;
-      // A referral code only counts on a qualifying package (priced above
-      // the configured minimum) — mirrors the portal UI, which hides the
-      // code field entirely below that price, but this is the guard that
-      // actually matters since the UI can't be trusted.
-      const packagePrice = Number(pkg.price);
-      const referralQualifies =
-        settings.referralEnabled && packagePrice > Number(settings.referralMinPackagePrice);
       if (data.referralCode && referralQualifies) {
         const referrer = await findCustomerByReferralCode(data.referralCode);
-        if (referrer && referrer.id !== customerId) referredBy = referrer.id;
+        if (referrer) referredBy = referrer.id;
       }
       await sql`
-        insert into customers (id, phone, device_token, status, referral_code, referred_by_customer_id)
-        values (${customerId}, ${phone}, ${data.token}, 'ACTIVE', ${referralCode}, ${referredBy})
+        insert into customers (id, phone, device_token, status, referred_by_customer_id, site_id)
+        values (${customerId}, ${phone}, ${data.token}, 'ACTIVE', ${referredBy}, ${paySiteId})
       `;
+      if (referredBy) {
+        referralApplied = true;
+        referrerToNotify = referredBy;
+      }
     } else {
+      // An existing customer with no referrer yet and no paid history may
+      // still attach a code to their first purchase.
+      if (data.referralCode && referralQualifies) {
+        const prior = await sql<{ n: number; ref: string | null; paid: boolean }>`
+          select
+            (select count(*)::int from payments where customer_id = ${customerId} and status = 'SUCCESS') as n,
+            (select referred_by_customer_id from customers where id = ${customerId}) as ref,
+            (select referral_bonus_paid from customers where id = ${customerId}) as paid
+        `;
+        if (Number(prior[0]?.n ?? 0) === 0 && !prior[0]?.ref && !prior[0]?.paid) {
+          const referrer = await findCustomerByReferralCode(data.referralCode);
+          if (referrer && referrer.id !== customerId) {
+            await sql`
+              update customers set referred_by_customer_id = ${referrer.id}, updated_at = now()
+              where id = ${customerId}
+            `;
+            referralApplied = true;
+            referrerToNotify = referrer.id;
+          }
+        }
+      }
       await sql`
-        update customers set device_token = ${data.token}, updated_at = now()
+        update customers set device_token = ${data.token},
+          site_id = coalesce(site_id, ${paySiteId}), updated_at = now()
         where id = ${customerId}
       `;
+    }
+    if (referrerToNotify) {
+      await announceReferral(referrerToNotify, phone, null).catch(() => {});
     }
 
     const paymentId = nid("pay");
@@ -344,10 +422,10 @@ export const startPayment = createServerFn({ method: "POST" })
     await sql`
       insert into payments (
         id, customer_id, package_id, checkout_request_id, merchant_request_id,
-        phone, amount, status, activation_status
+        phone, amount, status, activation_status, site_id
       ) values (
         ${paymentId}, ${customerId}, ${pkg.id}, ${stk.checkoutRequestId},
-        ${stk.merchantRequestId}, ${phone}, ${pkg.price}, 'PENDING', 'NOT_ACTIVATED'
+        ${stk.merchantRequestId}, ${phone}, ${pkg.price}, 'PENDING', 'NOT_ACTIVATED', ${paySiteId}
       )
     `;
 
@@ -359,6 +437,8 @@ export const startPayment = createServerFn({ method: "POST" })
       amount: Number(pkg.price),
       packageName: String(pkg.name),
       phone,
+      referralApplied,
+      referralBonusMinutes: settings.welcomeBonusMinutes + settings.referralBonusMinutes,
     };
   });
 
@@ -597,47 +677,38 @@ export const getAccount = createServerFn({ method: "POST" })
   .validator((data: unknown) => identitySchema.parse(data))
   .handler(async ({ data }) => {
     await expireDuePackages();
+    const sql = await getSql();
     let access: ActiveAccess = null;
+    let customerId: string | null = null;
     if (data.customerId) access = await findActiveForCustomer(data.customerId, data.token);
     if (!access && data.token) {
-      const sql = await getSql();
       const t = await sql<{ id: string }>`
         select id from customers where device_token = ${data.token} limit 1
       `;
-      if (t[0]) access = await findActiveForCustomer(t[0].id, data.token);
+      if (t[0]) {
+        customerId = t[0].id;
+        access = await findActiveForCustomer(t[0].id, data.token);
+      }
     }
     if (!access && data.phone) {
       const p = normalizeKenyanPhone(data.phone);
       if (p) {
-        const sql = await getSql();
         const t = await sql<{ id: string }>`
           select id from customers where phone = ${p} limit 1
         `;
-        if (t[0]) access = await findActiveForCustomer(t[0].id, data.token);
+        if (t[0]) {
+          customerId = t[0].id;
+          access = await findActiveForCustomer(t[0].id, data.token);
+        }
       }
     }
+    customerId = access?.customer.id ?? customerId ?? data.customerId ?? null;
     const settings = await getSettings();
-    let loyalty: { points: number; referralCode: string } | null = null;
-    if ((settings.loyaltyEnabled || settings.referralEnabled) && access) {
-      const sql = await getSql();
-      const rows = await sql<{ loyalty_points: number; referral_code: string }>`
-        select loyalty_points, referral_code from customers where id = ${access.customer.id} limit 1
-      `;
-      if (rows[0]) {
-        loyalty = {
-          points: Number(rows[0].loyalty_points ?? 0),
-          referralCode: String(rows[0].referral_code ?? ""),
-        };
-      }
-    }
+    const member = await getSessionCustomer(data.token);
+
     let devices: { info: string | null; boundAt: string; isThisDevice: boolean }[] = [];
     let maxDevicesPerPackage = 1;
-    let queued: { packageName: string; startTime: string; expiryTime: string }[] = [];
-    let notices: { id: string; message: string; minutes: number; createdAt: string }[] = [];
-    let referralStats = { friends: 0, minutesEarned: 0 };
-    let bankedMinutes = 0;
     if (access) {
-      const sql = await getSql();
       const rows = await sql<{ device_token: string; device_info: string | null; bound_at: string }>`
         select device_token, device_info, bound_at from customer_package_devices
         where customer_package_id = ${access.pack.id}
@@ -649,60 +720,183 @@ export const getAccount = createServerFn({ method: "POST" })
         isThisDevice: r.device_token === data.token,
       }));
       maxDevicesPerPackage = await activePackageMaxDevices(access.customer.id);
-      queued = await queuedPackages(access.customer.id);
-      const n = await sql<{ id: string; message: string; minutes: number; created_at: string }>`
-        select id, message, minutes, created_at from customer_notices
-        where customer_id = ${access.customer.id} and seen_at is null
-        order by created_at desc limit 5
-      `;
-      notices = n.map((r) => ({
-        id: String(r.id),
-        message: String(r.message),
-        minutes: Number(r.minutes),
-        createdAt: iso(r.created_at),
-      }));
-      const refs = await sql<{ friends: number; minutes: number }>`
-        select
-          (select count(*)::int from customers where referred_by_customer_id = ${access.customer.id} and referral_bonus_paid = true) as friends,
-          coalesce((select sum(minutes) from customer_notices where customer_id = ${access.customer.id} and kind = 'REFERRAL_BONUS'), 0)::int as minutes
-      `;
-      referralStats = {
-        friends: Number(refs[0]?.friends ?? 0),
-        minutesEarned: Number(refs[0]?.minutes ?? 0),
-      };
-      const bank = await sql<{ b: number }>`
-        select bonus_minutes_balance as b from customers where id = ${access.customer.id}
-      `;
-      bankedMinutes = Number(bank[0]?.b ?? 0);
     }
+    // Queued packages are looked up by customer, NOT gated on an ACTIVE
+    // package — the customer must see what they've paid for regardless.
+    const queued = customerId ? await queuedPackages(customerId) : [];
+    const queuedPayments = customerId
+      ? await sql<{ n: number }>`
+          select count(*)::int as n from payments
+          where customer_id = ${customerId} and status = 'SUCCESS' and activation_status = 'QUEUED'
+        `
+      : [];
     return {
       access,
       hotspotName: settings.hotspotName,
       currency: settings.currency,
-      loyalty,
-      loyaltyEnabled: settings.loyaltyEnabled,
-      referralEnabled: settings.referralEnabled,
       devices,
       maxDevicesPerPackage,
       queued,
-      notices,
-      referralStats,
-      bankedMinutes,
+      queuedCount: Math.max(queued.length, Number(queuedPayments[0]?.n ?? 0)),
+      member: member
+        ? { id: member.id, phone: member.phone, registered: member.registered }
+        : null,
+      loyaltyEnabled: settings.loyaltyEnabled,
+      referralEnabled: settings.referralEnabled,
+    };
+  });
+
+/**
+ * Everything on the Rewards page: loyalty points, referral code + stats and
+ * unread alerts. Registered, signed-in customers only.
+ */
+export const getRewards = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string().min(8).max(80) }).parse(data))
+  .handler(async ({ data }) => {
+    const settings = await getSettings();
+    const base = {
+      hotspotName: settings.hotspotName,
+      currency: settings.currency,
+      loyaltyEnabled: settings.loyaltyEnabled,
+      referralEnabled: settings.referralEnabled,
+      loyaltyPointsPerKes: settings.loyaltyPointsPerKes,
+      referralBonusMinutes: settings.referralBonusMinutes,
+      welcomeBonusMinutes: settings.welcomeBonusMinutes,
+      referralMinPackagePrice: settings.referralMinPackagePrice,
+    };
+    const member = await getSessionCustomer(data.token);
+    if (!member) return { ...base, state: "signed_out" as const };
+    if (!member.registered) return { ...base, state: "guest" as const, phone: member.phone };
+
+    const sql = await getSql();
+    const c = (
+      await sql<{
+        loyalty_points: number;
+        referral_code: string | null;
+        bonus_minutes_balance: number;
+      }>`
+        select loyalty_points, referral_code, bonus_minutes_balance
+        from customers where id = ${member.id} limit 1
+      `
+    )[0];
+    const refs = (
+      await sql<{ joined: number; paid: number; minutes: number }>`
+        select
+          (select count(*)::int from customers where referred_by_customer_id = ${member.id}) as joined,
+          (select count(*)::int from customers where referred_by_customer_id = ${member.id} and referral_bonus_paid = true) as paid,
+          coalesce((select sum(minutes) from customer_notices where customer_id = ${member.id} and kind = 'REFERRAL_BONUS'), 0)::int as minutes
+      `
+    )[0];
+    const notices = await sql<{
+      id: string;
+      kind: string;
+      message: string;
+      minutes: number;
+      created_at: string;
+      seen_at: string | null;
+    }>`
+      select id, kind, message, minutes, created_at, seen_at from customer_notices
+      where customer_id = ${member.id}
+      order by created_at desc limit 20
+    `;
+    const rewards = settings.loyaltyEnabled
+      ? (
+          await sql<SqlRow>`
+            select * from packages
+            where status = 'ACTIVE' and points_cost is not null
+            order by points_cost
+          `
+        ).map(mapPackage)
+      : [];
+    const ledger = await sql<{ id: string; delta: number; reason: string; created_at: string }>`
+      select id, delta, reason, created_at from loyalty_ledger
+      where customer_id = ${member.id} order by created_at desc limit 10
+    `;
+    return {
+      ...base,
+      state: "member" as const,
+      customerId: member.id,
+      phone: member.phone,
+      points: Number(c?.loyalty_points ?? 0),
+      referralCode: c?.referral_code ?? null,
+      bankedMinutes: Number(c?.bonus_minutes_balance ?? 0),
+      referralStats: {
+        joined: Number(refs?.joined ?? 0),
+        paid: Number(refs?.paid ?? 0),
+        minutesEarned: Number(refs?.minutes ?? 0),
+      },
+      notices: notices.map((n) => ({
+        id: String(n.id),
+        kind: String(n.kind),
+        message: String(n.message),
+        minutes: Number(n.minutes),
+        createdAt: iso(n.created_at),
+        unread: !n.seen_at,
+      })),
+      rewards,
+      ledger: ledger.map((l) => ({
+        id: String(l.id),
+        delta: Number(l.delta),
+        reason: String(l.reason),
+        createdAt: iso(l.created_at),
+      })),
     };
   });
 
 export const dismissNotices = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
-    z.object({ customerId: z.string(), ids: z.array(z.string()).max(20) }).parse(data),
+    z
+      .object({ token: z.string().min(8).max(80), ids: z.array(z.string()).max(50).optional() })
+      .parse(data),
   )
   .handler(async ({ data }) => {
+    const member = await getSessionCustomer(data.token);
+    if (!member) return { ok: false as const };
     const sql = await getSql();
-    if (data.ids.length > 0) {
+    if (data.ids && data.ids.length > 0) {
       await sql`
         update customer_notices set seen_at = now()
-        where customer_id = ${data.customerId} and id = any(${data.ids}) and seen_at is null
+        where customer_id = ${member.id} and id = any(${data.ids}) and seen_at is null
+      `;
+    } else {
+      await sql`
+        update customer_notices set seen_at = now()
+        where customer_id = ${member.id} and seen_at is null
       `;
     }
+    return { ok: true as const };
+  });
+
+export const signUp = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z
+      .object({
+        phone: z.string().min(9).max(20),
+        secret: z.string().min(4).max(64),
+        token: z.string().min(8).max(80),
+        referralCode: z.string().max(20).optional(),
+        claimTransactionId: z.string().max(20).optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => signUpCustomer(data));
+
+export const signIn = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z
+      .object({
+        phone: z.string().min(9).max(20),
+        secret: z.string().min(1).max(64),
+        token: z.string().min(8).max(80),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => signInCustomer(data));
+
+export const signOut = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string().min(8).max(80) }).parse(data))
+  .handler(async ({ data }) => {
+    await signOutDevice(data.token);
     return { ok: true as const };
   });
 
@@ -830,9 +1024,8 @@ export const redeemPoints = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
     z
       .object({
-        customerId: z.string(),
         packageId: z.string(),
-        deviceToken: z.string().optional(),
+        token: z.string().min(8).max(80),
       })
       .parse(data),
   )
@@ -841,9 +1034,14 @@ export const redeemPoints = createServerFn({ method: "POST" })
     if (!settings.loyaltyEnabled) {
       return { ok: false as const, error: "Loyalty points aren't enabled right now." };
     }
+    // The account comes from the signed-in device, never from the request.
+    const member = await getSessionCustomer(data.token);
+    if (!member?.registered) {
+      return { ok: false as const, error: "Sign in to redeem your loyalty points." };
+    }
     return redeemPointsForPackage({
-      customerId: data.customerId,
+      customerId: member.id,
       packageId: data.packageId,
-      deviceToken: data.deviceToken,
+      deviceToken: data.token,
     });
   });

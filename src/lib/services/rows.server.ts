@@ -66,6 +66,8 @@ export function mapSettings(row: SqlRow): Settings {
   return {
     id: String(row.id),
     hotspotName: String(row.hotspot_name),
+    apiMode: "rest",
+    apiPort: null,
     currency: String(row.currency ?? "KSh"),
     welcomeMessage: String(row.welcome_message ?? "Welcome to Wi-Fi"),
     demoMode: false,
@@ -107,6 +109,11 @@ export function mapSettings(row: SqlRow): Settings {
     studentBlockedDomains: String(
       row.student_blocked_domains ?? "facebook.com,instagram.com,tiktok.com",
     ),
+    radiusEnabled: asBool(row.radius_enabled),
+    hasRadiusSecret: Boolean(row.radius_secret),
+    radiusAuthPort: asNumber(row.radius_auth_port, 1812),
+    radiusAcctPort: asNumber(row.radius_acct_port, 1813),
+    radiusServerHost: row.radius_server_host ? String(row.radius_server_host) : null,
   };
 }
 

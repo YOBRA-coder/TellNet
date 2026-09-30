@@ -31,13 +31,13 @@ export const SheetContent = React.forwardRef<
     <SheetPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed z-50 flex flex-col gap-4 bg-surface shadow-lift border-border",
+        "fixed z-50 flex flex-col gap-4 overflow-y-auto overscroll-contain bg-surface shadow-lift border-border",
         side === "right" &&
           "inset-y-0 right-0 h-full w-full max-w-md border-l p-6",
         side === "left" &&
           "inset-y-0 left-0 h-full w-full max-w-xs border-r p-6",
         side === "bottom" &&
-          "inset-x-0 bottom-0 w-full rounded-t-2xl border-t p-6",
+          "inset-x-0 bottom-0 max-h-[90dvh] w-full rounded-t-2xl border-t p-6",
         className,
       )}
       {...props}

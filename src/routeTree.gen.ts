@@ -19,6 +19,7 @@ import { Route as AdminDashboardRouteImport } from './routes/admin/dashboard'
 import { Route as AdminLiveUsersRouteImport } from './routes/admin/live-users'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminNetworkRouteImport } from './routes/admin/network'
+import { Route as AdminNetworkMapRouteImport } from './routes/admin/network-map'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminPaymentsRouteImport } from './routes/admin/payments'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
@@ -27,12 +28,14 @@ import { Route as AdminVouchersRouteImport } from './routes/admin/vouchers'
 import { Route as PortalIndexRouteImport } from './routes/portal/index'
 import { Route as PortalAccountRouteImport } from './routes/portal/account'
 import { Route as PortalAddDeviceRouteImport } from './routes/portal/add-device'
+import { Route as PortalAuthRouteImport } from './routes/portal/auth'
 import { Route as PortalConnectRouteImport } from './routes/portal/connect'
 import { Route as PortalExpiredRouteImport } from './routes/portal/expired'
 import { Route as PortalPackagesRouteImport } from './routes/portal/packages'
 import { Route as PortalPaymentRouteImport } from './routes/portal/payment'
 import { Route as PortalPaymentStatusRouteImport } from './routes/portal/payment-status'
 import { Route as PortalRecoverRouteImport } from './routes/portal/recover'
+import { Route as PortalRewardsRouteImport } from './routes/portal/rewards'
 import { Route as PortalVoucherRouteImport } from './routes/portal/voucher'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiMpesaCallbackRouteImport } from './routes/api/mpesa.callback'
@@ -87,6 +90,11 @@ const AdminNetworkRoute = AdminNetworkRouteImport.update({
   path: '/network',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminNetworkMapRoute = AdminNetworkMapRouteImport.update({
+  id: '/network-map',
+  path: '/network-map',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminPackagesRoute = AdminPackagesRouteImport.update({
   id: '/packages',
   path: '/packages',
@@ -127,6 +135,11 @@ const PortalAddDeviceRoute = PortalAddDeviceRouteImport.update({
   path: '/add-device',
   getParentRoute: () => PortalRouteRoute,
 } as any)
+const PortalAuthRoute = PortalAuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => PortalRouteRoute,
+} as any)
 const PortalConnectRoute = PortalConnectRouteImport.update({
   id: '/connect',
   path: '/connect',
@@ -157,6 +170,11 @@ const PortalRecoverRoute = PortalRecoverRouteImport.update({
   path: '/recover',
   getParentRoute: () => PortalRouteRoute,
 } as any)
+const PortalRewardsRoute = PortalRewardsRouteImport.update({
+  id: '/rewards',
+  path: '/rewards',
+  getParentRoute: () => PortalRouteRoute,
+} as any)
 const PortalVoucherRoute = PortalVoucherRouteImport.update({
   id: '/voucher',
   path: '/voucher',
@@ -183,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/admin/live-users': typeof AdminLiveUsersRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/network': typeof AdminNetworkRoute
+  '/admin/network-map': typeof AdminNetworkMapRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -190,12 +209,14 @@ export interface FileRoutesByFullPath {
   '/admin/vouchers': typeof AdminVouchersRoute
   '/portal/account': typeof PortalAccountRoute
   '/portal/add-device': typeof PortalAddDeviceRoute
+  '/portal/auth': typeof PortalAuthRoute
   '/portal/connect': typeof PortalConnectRoute
   '/portal/expired': typeof PortalExpiredRoute
   '/portal/packages': typeof PortalPackagesRoute
   '/portal/payment': typeof PortalPaymentRoute
   '/portal/payment-status': typeof PortalPaymentStatusRoute
   '/portal/recover': typeof PortalRecoverRoute
+  '/portal/rewards': typeof PortalRewardsRoute
   '/portal/voucher': typeof PortalVoucherRoute
   '/admin/': typeof AdminIndexRoute
   '/portal/': typeof PortalIndexRoute
@@ -210,6 +231,7 @@ export interface FileRoutesByTo {
   '/admin/live-users': typeof AdminLiveUsersRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/network': typeof AdminNetworkRoute
+  '/admin/network-map': typeof AdminNetworkMapRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -217,12 +239,14 @@ export interface FileRoutesByTo {
   '/admin/vouchers': typeof AdminVouchersRoute
   '/portal/account': typeof PortalAccountRoute
   '/portal/add-device': typeof PortalAddDeviceRoute
+  '/portal/auth': typeof PortalAuthRoute
   '/portal/connect': typeof PortalConnectRoute
   '/portal/expired': typeof PortalExpiredRoute
   '/portal/packages': typeof PortalPackagesRoute
   '/portal/payment': typeof PortalPaymentRoute
   '/portal/payment-status': typeof PortalPaymentStatusRoute
   '/portal/recover': typeof PortalRecoverRoute
+  '/portal/rewards': typeof PortalRewardsRoute
   '/portal/voucher': typeof PortalVoucherRoute
   '/admin': typeof AdminIndexRoute
   '/portal': typeof PortalIndexRoute
@@ -240,6 +264,7 @@ export interface FileRoutesById {
   '/admin/live-users': typeof AdminLiveUsersRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/network': typeof AdminNetworkRoute
+  '/admin/network-map': typeof AdminNetworkMapRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -247,12 +272,14 @@ export interface FileRoutesById {
   '/admin/vouchers': typeof AdminVouchersRoute
   '/portal/account': typeof PortalAccountRoute
   '/portal/add-device': typeof PortalAddDeviceRoute
+  '/portal/auth': typeof PortalAuthRoute
   '/portal/connect': typeof PortalConnectRoute
   '/portal/expired': typeof PortalExpiredRoute
   '/portal/packages': typeof PortalPackagesRoute
   '/portal/payment': typeof PortalPaymentRoute
   '/portal/payment-status': typeof PortalPaymentStatusRoute
   '/portal/recover': typeof PortalRecoverRoute
+  '/portal/rewards': typeof PortalRewardsRoute
   '/portal/voucher': typeof PortalVoucherRoute
   '/admin/': typeof AdminIndexRoute
   '/portal/': typeof PortalIndexRoute
@@ -271,6 +298,7 @@ export interface FileRouteTypes {
     | '/admin/live-users'
     | '/admin/login'
     | '/admin/network'
+    | '/admin/network-map'
     | '/admin/packages'
     | '/admin/payments'
     | '/admin/reports'
@@ -278,12 +306,14 @@ export interface FileRouteTypes {
     | '/admin/vouchers'
     | '/portal/account'
     | '/portal/add-device'
+    | '/portal/auth'
     | '/portal/connect'
     | '/portal/expired'
     | '/portal/packages'
     | '/portal/payment'
     | '/portal/payment-status'
     | '/portal/recover'
+    | '/portal/rewards'
     | '/portal/voucher'
     | '/admin/'
     | '/portal/'
@@ -298,6 +328,7 @@ export interface FileRouteTypes {
     | '/admin/live-users'
     | '/admin/login'
     | '/admin/network'
+    | '/admin/network-map'
     | '/admin/packages'
     | '/admin/payments'
     | '/admin/reports'
@@ -305,12 +336,14 @@ export interface FileRouteTypes {
     | '/admin/vouchers'
     | '/portal/account'
     | '/portal/add-device'
+    | '/portal/auth'
     | '/portal/connect'
     | '/portal/expired'
     | '/portal/packages'
     | '/portal/payment'
     | '/portal/payment-status'
     | '/portal/recover'
+    | '/portal/rewards'
     | '/portal/voucher'
     | '/admin'
     | '/portal'
@@ -327,6 +360,7 @@ export interface FileRouteTypes {
     | '/admin/live-users'
     | '/admin/login'
     | '/admin/network'
+    | '/admin/network-map'
     | '/admin/packages'
     | '/admin/payments'
     | '/admin/reports'
@@ -334,12 +368,14 @@ export interface FileRouteTypes {
     | '/admin/vouchers'
     | '/portal/account'
     | '/portal/add-device'
+    | '/portal/auth'
     | '/portal/connect'
     | '/portal/expired'
     | '/portal/packages'
     | '/portal/payment'
     | '/portal/payment-status'
     | '/portal/recover'
+    | '/portal/rewards'
     | '/portal/voucher'
     | '/admin/'
     | '/portal/'
@@ -428,6 +464,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminNetworkRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/network-map': {
+      id: '/admin/network-map'
+      path: '/network-map'
+      fullPath: '/admin/network-map'
+      preLoaderRoute: typeof AdminNetworkMapRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/packages': {
       id: '/admin/packages'
       path: '/packages'
@@ -484,6 +527,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalAddDeviceRouteImport
       parentRoute: typeof PortalRouteRoute
     }
+    '/portal/auth': {
+      id: '/portal/auth'
+      path: '/auth'
+      fullPath: '/portal/auth'
+      preLoaderRoute: typeof PortalAuthRouteImport
+      parentRoute: typeof PortalRouteRoute
+    }
     '/portal/connect': {
       id: '/portal/connect'
       path: '/connect'
@@ -526,6 +576,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalRecoverRouteImport
       parentRoute: typeof PortalRouteRoute
     }
+    '/portal/rewards': {
+      id: '/portal/rewards'
+      path: '/rewards'
+      fullPath: '/portal/rewards'
+      preLoaderRoute: typeof PortalRewardsRouteImport
+      parentRoute: typeof PortalRouteRoute
+    }
     '/portal/voucher': {
       id: '/portal/voucher'
       path: '/voucher'
@@ -556,6 +613,7 @@ interface AdminRouteRouteChildren {
   AdminLiveUsersRoute: typeof AdminLiveUsersRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminNetworkRoute: typeof AdminNetworkRoute
+  AdminNetworkMapRoute: typeof AdminNetworkMapRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminPaymentsRoute: typeof AdminPaymentsRoute
   AdminReportsRoute: typeof AdminReportsRoute
@@ -570,6 +628,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminLiveUsersRoute: AdminLiveUsersRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminNetworkRoute: AdminNetworkRoute,
+  AdminNetworkMapRoute: AdminNetworkMapRoute,
   AdminPackagesRoute: AdminPackagesRoute,
   AdminPaymentsRoute: AdminPaymentsRoute,
   AdminReportsRoute: AdminReportsRoute,
@@ -585,12 +644,14 @@ const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
 interface PortalRouteRouteChildren {
   PortalAccountRoute: typeof PortalAccountRoute
   PortalAddDeviceRoute: typeof PortalAddDeviceRoute
+  PortalAuthRoute: typeof PortalAuthRoute
   PortalConnectRoute: typeof PortalConnectRoute
   PortalExpiredRoute: typeof PortalExpiredRoute
   PortalPackagesRoute: typeof PortalPackagesRoute
   PortalPaymentRoute: typeof PortalPaymentRoute
   PortalPaymentStatusRoute: typeof PortalPaymentStatusRoute
   PortalRecoverRoute: typeof PortalRecoverRoute
+  PortalRewardsRoute: typeof PortalRewardsRoute
   PortalVoucherRoute: typeof PortalVoucherRoute
   PortalIndexRoute: typeof PortalIndexRoute
 }
@@ -598,12 +659,14 @@ interface PortalRouteRouteChildren {
 const PortalRouteRouteChildren: PortalRouteRouteChildren = {
   PortalAccountRoute: PortalAccountRoute,
   PortalAddDeviceRoute: PortalAddDeviceRoute,
+  PortalAuthRoute: PortalAuthRoute,
   PortalConnectRoute: PortalConnectRoute,
   PortalExpiredRoute: PortalExpiredRoute,
   PortalPackagesRoute: PortalPackagesRoute,
   PortalPaymentRoute: PortalPaymentRoute,
   PortalPaymentStatusRoute: PortalPaymentStatusRoute,
   PortalRecoverRoute: PortalRecoverRoute,
+  PortalRewardsRoute: PortalRewardsRoute,
   PortalVoucherRoute: PortalVoucherRoute,
   PortalIndexRoute: PortalIndexRoute,
 }

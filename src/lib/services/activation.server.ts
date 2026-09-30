@@ -30,6 +30,13 @@ function randomMac() {
 export async function activateFromPayment(
   paymentId: string,
   device?: { token?: string | null; info?: string | null },
+  /**
+   * promote: set only by the expiry job when it is this queued package's
+   * turn. Every other caller (retry buttons, "Already paid?", reconnects)
+   * re-running a payment whose package is still QUEUED must NOT start it
+   * early — that used to skip the queue and overlap the running package.
+   */
+  opts?: { promote?: boolean },
 ): Promise<
   | { ok: true; pack: CustomerPackage; queued?: boolean }
   | { ok: false; reason: string }
@@ -87,7 +94,34 @@ export async function activateFromPayment(
 
   let packRow = existing[0];
   const settings = await getSettings();
-  const packageMaxDevices = Number(pay.package_max_devices) >= 2 ? 2 : 1;
+  const isQueuedRow = Boolean(packRow && String(packRow.status) === "QUEUED");
+  if (packRow && isQueuedRow && !opts?.promote) {
+    return { ok: true, pack: mapCustomerPackage(packRow), queued: true };
+  }
+
+  // A row that already exists (resume, retry, promotion, or an operator's
+  // "change package") is governed by ITS package, not the package the
+  // payment was originally for — otherwise a reconnect would silently undo
+  // a speed change.
+  let effDownload = Number(pay.download_kbps);
+  let effUpload = Number(pay.upload_kbps);
+  let effCategory = String(pay.package_category ?? "STANDARD");
+  let effMaxDevices = Number(pay.package_max_devices);
+  if (packRow && String(packRow.package_id) !== String(pay.package_id)) {
+    const cur = (
+      await sql<SqlRow>`
+        select download_kbps, upload_kbps, category, max_devices
+        from packages where id = ${packRow.package_id} limit 1
+      `
+    )[0];
+    if (cur) {
+      effDownload = Number(cur.download_kbps);
+      effUpload = Number(cur.upload_kbps);
+      effCategory = String(cur.category ?? "STANDARD");
+      effMaxDevices = Number(cur.max_devices);
+    }
+  }
+  const packageMaxDevices = effMaxDevices >= 2 ? 2 : 1;
   const durationMin = Number(pay.duration_minutes) + referralExtraMinutes;
 
   // Stacking: this is a brand-new payment (no customer_package row for it
@@ -141,9 +175,18 @@ export async function activateFromPayment(
     }
   }
 
-  const start = packRow ? new Date(String(packRow.start_time)) : new Date();
+  // Promotion: the queued package's clock starts NOW (not at the moment it
+  // was scheduled to), so any gap — router down, late job — never eats the
+  // time the customer paid for.
+  const start = !packRow || isQueuedRow ? new Date() : new Date(String(packRow.start_time));
   const expiry = packRow
-    ? new Date(String(packRow.expiry_time))
+    ? isQueuedRow
+      ? new Date(
+          start.getTime() +
+            (new Date(String(packRow.expiry_time)).getTime() -
+              new Date(String(packRow.start_time)).getTime()),
+        )
+      : new Date(String(packRow.expiry_time))
     : new Date(start.getTime() + durationMin * 60_000);
 
   if (expiry.getTime() <= Date.now()) {
@@ -220,14 +263,8 @@ export async function activateFromPayment(
     return { ok: false, reason: "capacity" };
   }
 
-  const downloadKbps = Math.min(
-    Number(pay.download_kbps),
-    settings.perUserMaxKbps || Number(pay.download_kbps),
-  );
-  const uploadKbps = Math.min(
-    Number(pay.upload_kbps),
-    settings.perUserMaxKbps || Number(pay.upload_kbps),
-  );
+  const downloadKbps = Math.min(effDownload, settings.perUserMaxKbps || effDownload);
+  const uploadKbps = Math.min(effUpload, settings.perUserMaxKbps || effUpload);
 
   try {
     await createAndActivateUser({
@@ -238,9 +275,9 @@ export async function activateFromPayment(
       sessionTimeoutSeconds: remaining,
       customerId: String(pay.customer_id),
       maxDevices: settings.oneDevicePerPackage ? packageMaxDevices : 1,
-      category: pay.package_category === "STUDENT" ? "STUDENT" : "STANDARD",
+      category: effCategory === "STUDENT" ? "STUDENT" : "STANDARD",
       blockedDomains:
-        pay.package_category === "STUDENT"
+        effCategory === "STUDENT"
           ? settings.studentBlockedDomains
               .split(",")
               .map((d) => d.trim())
@@ -263,9 +300,15 @@ export async function activateFromPayment(
         )
       `;
     } else {
+      // A promoted queued package that failed to reach the router becomes
+      // ACTIVE + ACTIVATION_FAILED, exactly like a fresh purchase that
+      // failed, so the normal retry path (which never re-queues) finishes it.
       await sql`
         update customer_packages
-        set activation_status = 'ACTIVATION_FAILED', mikrotik_username = ${username}, updated_at = now()
+        set activation_status = 'ACTIVATION_FAILED', mikrotik_username = ${username},
+            status = 'ACTIVE',
+            start_time = ${start.toISOString()}, expiry_time = ${expiry.toISOString()},
+            updated_at = now()
         where id = ${packRow.id}
       `;
     }
@@ -306,6 +349,8 @@ export async function activateFromPayment(
     await sql`
       update customer_packages
       set activation_status = 'ACTIVATED', status = 'ACTIVE',
+          start_time = ${start.toISOString()}, expiry_time = ${expiry.toISOString()},
+          speed_limit_kbps = ${effDownload},
           mikrotik_username = ${username}, updated_at = now()
       where id = ${packRow.id}
     `;
@@ -315,6 +360,12 @@ export async function activateFromPayment(
       where cp.id = ${packRow.id}
     `)[0];
   }
+
+  // Same secret the router user was just given, so RADIUS (multi-AP) can
+  // authenticate this login too.
+  await sql`
+    update customer_packages set radius_password = ${password} where id = ${packRow.id}
+  `;
 
   if (
     settings.oneDevicePerPackage &&

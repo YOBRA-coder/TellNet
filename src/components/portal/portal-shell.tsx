@@ -24,9 +24,14 @@ export function PortalShell({
             {hotspotName}
           </span>
         </Link>
-        <Link to="/" className="text-xs text-subtle hover:text-muted">
-          Home
-        </Link>
+        <nav className="flex items-center gap-4 text-xs text-subtle">
+          <Link to="/portal/account" className="hover:text-muted">
+            Account
+          </Link>
+          <Link to="/portal/rewards" className="hover:text-muted">
+            Rewards
+          </Link>
+        </nav>
       </header>
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 pb-8 pt-4">
         {maintenanceMode ? (

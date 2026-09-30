@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { MapPin, PlayCircle, Plus, Radio, RefreshCw, Router, Smartphone, Wifi } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ALL_SITES, useAdminSite } from "@/hooks/use-admin-site";
 import { Card } from "@/components/ui/card";
 import {
   Dialog,
@@ -23,6 +24,7 @@ import {
   deleteIsp,
   deleteMikroTik,
   getNetwork,
+  getSiteMap,
   saveIsp,
   saveMikroTik,
   saveSite,
@@ -55,6 +57,7 @@ const emptyRouter = {
   apiPort: 8728,
   makePrimary: true,
   siteId: "site_default",
+  newSiteName: "",
 };
 
 const emptyIsp = {
@@ -67,6 +70,7 @@ const emptyIsp = {
   perUserMaxKbps: 5120,
   maxUsers: 25,
   siteId: "site_default",
+  newSiteName: "",
 };
 
 const emptySiteForm = {
@@ -76,7 +80,8 @@ const emptySiteForm = {
   notes: "",
 };
 
-const ALL_SITES = "ALL";
+/** Sentinel for the site dropdown's "create a new site" choice. */
+const NEW_SITE = "__new__";
 
 function NetworkPage() {
   const qc = useQueryClient();
@@ -90,6 +95,7 @@ function NetworkPage() {
   const [open, setOpen] = useState(false);
   const [ispOpen, setIspOpen] = useState(false);
   const [siteOpen, setSiteOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const [siteFormOpen, setSiteFormOpen] = useState(false);
   const [editing, setEditing] = useState<MikroTik | null>(null);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
@@ -100,7 +106,7 @@ function NetworkPage() {
   const [scriptOpen, setScriptOpen] = useState(false);
   const [scriptText, setScriptText] = useState("");
   const [scriptTitle, setScriptTitle] = useState("");
-  const [siteFilter, setSiteFilter] = useState<string>(ALL_SITES);
+  const [siteFilter, setSiteFilter] = useAdminSite();
 
   const d = q.data;
   const allRouters = d?.mikrotiks ?? [];
@@ -146,6 +152,7 @@ function NetworkPage() {
         insecureTls: mt.insecureTls,
         makePrimary: mt.isPrimary,
         siteId: mt.siteId ?? "site_default",
+        newSiteName: "",
       });
     } else {
       setEditing(null);
@@ -174,7 +181,8 @@ function NetworkPage() {
           apiPort: form.apiMode === "api6" ? form.apiPort || form.port || 8728 : form.port,
           insecureTls: form.insecureTls,
           makePrimary: form.makePrimary,
-          siteId: form.siteId,
+          siteId: form.siteId === NEW_SITE ? undefined : form.siteId,
+          newSiteName: form.siteId === NEW_SITE ? form.newSiteName.trim() : undefined,
         },
       }),
     onSuccess: (res) => {
@@ -318,13 +326,15 @@ function NetworkPage() {
       perUserMaxKbps?: number;
       maxUsers?: number;
       siteId?: string;
+      newSiteName?: string;
     }) => saveIsp({ data: input }),
     onSuccess: (res) => {
       if (!res.ok) {
-        toast.error("Could not save this path.");
+        toast.error("error" in res ? String(res.error) : "Could not save this path.");
         return;
       }
       toast.success("ISP path saved.");
+      qc.invalidateQueries({ queryKey: ["site-map"] });
       setIspOpen(false);
       setIspForm(emptyIsp);
       qc.invalidateQueries({ queryKey: ["network"] });
@@ -349,6 +359,7 @@ function NetworkPage() {
         return;
       }
       toast.success("Site saved.");
+      qc.invalidateQueries({ queryKey: ["site-map"] });
       setSiteFormOpen(false);
       setSiteForm(emptySiteForm);
       setEditingSite(null);
@@ -435,6 +446,16 @@ function NetworkPage() {
             <MapPin className="size-4" />
             Sites
           </Button>
+          <Button variant="outline" onClick={() => setMapOpen(true)}>
+            <Router className="size-4" />
+            Site map
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/admin/network-map">
+              <Radio className="size-4" />
+              Network map
+            </Link>
+          </Button>
           <Button
             variant="outline"
             onClick={() => refresh.mutate()}
@@ -495,6 +516,7 @@ function NetworkPage() {
                     <RouterCard
                       key={mt.id}
                       mt={mt}
+                      siteLabel={siteName(mt.siteId)}
                       isps={isps}
                       onTest={() => test.mutate({ id: mt.id })}
                       onPrimary={() => primary.mutate(mt.id)}
@@ -540,6 +562,7 @@ function NetworkPage() {
               <RouterCard
                 key={mt.id}
                 mt={mt}
+                siteLabel={siteName(mt.siteId)}
                 isps={isps}
                 onTest={() => test.mutate({ id: mt.id })}
                 onPrimary={() => primary.mutate(mt.id)}
@@ -635,7 +658,7 @@ function NetworkPage() {
                 <p className="mt-3 text-sm text-muted">
                   {isp.interfaceName ?? "WAN"}
                   {isp.latencyMs != null ? ` · ${isp.latencyMs} ms` : ""}
-                  {sites.length > 1 ? ` · ${siteName(isp.siteId)}` : ""}
+                  {` · ${siteName(isp.siteId)}`}
                 </p>
                 <p className="mt-2 text-sm tabular-nums text-fg">
                   {formatSpeed(isp.totalKbps)} pool · {formatSpeed(isp.perUserMaxKbps)}
@@ -673,6 +696,7 @@ function NetworkPage() {
                         perUserMaxKbps: isp.perUserMaxKbps,
                         maxUsers: isp.maxUsers,
                         siteId: isp.siteId ?? "site_default",
+                        newSiteName: "",
                       });
                       setIspOpen(true);
                     }}
@@ -782,21 +806,12 @@ function NetworkPage() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </Field>
-            {sites.length > 1 && (
-              <Field label="Site / town">
-                <select
-                  className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                  value={form.siteId}
-                  onChange={(e) => setForm({ ...form, siteId: e.target.value })}
-                >
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
+            <SiteField
+              sites={sites}
+              siteId={form.siteId}
+              newSiteName={form.newSiteName}
+              onChange={(siteId, newSiteName) => setForm({ ...form, siteId, newSiteName })}
+            />
             <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
               <Field label="Address">
                 <Input
@@ -961,7 +976,8 @@ function NetworkPage() {
                 totalKbps: ispForm.totalKbps,
                 perUserMaxKbps: ispForm.perUserMaxKbps,
                 maxUsers: ispForm.maxUsers,
-                siteId: ispForm.siteId,
+                siteId: ispForm.siteId === NEW_SITE ? undefined : ispForm.siteId,
+                newSiteName: ispForm.siteId === NEW_SITE ? ispForm.newSiteName.trim() : undefined,
               });
             }}
           >
@@ -973,20 +989,20 @@ function NetworkPage() {
                 onChange={(e) => setIspForm({ ...ispForm, name: e.target.value })}
               />
             </Field>
-            {sites.length > 1 && (
+            {ispForm.mikrotikId ? (
               <Field label="Site / town">
-                <select
-                  className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                  value={ispForm.siteId}
-                  onChange={(e) => setIspForm({ ...ispForm, siteId: e.target.value })}
-                >
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <p className="flex h-11 items-center rounded-md border border-border bg-raised px-3 text-sm text-muted">
+                  {siteName(allRouters.find((r) => r.id === ispForm.mikrotikId)?.siteId ?? null)}
+                  <span className="ml-2 text-xs text-subtle">— follows the router you pick below</span>
+                </p>
               </Field>
+            ) : (
+              <SiteField
+                sites={sites}
+                siteId={ispForm.siteId}
+                newSiteName={ispForm.newSiteName}
+                onChange={(siteId, newSiteName) => setIspForm({ ...ispForm, siteId, newSiteName })}
+              />
             )}
             <Field label="Type">
               <select
@@ -1021,19 +1037,26 @@ function NetworkPage() {
                 }
               />
             </Field>
-            {routers.length > 0 && (
+            {allRouters.length > 0 && (
               <Field label="MikroTik">
                 <select
                   className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
                   value={ispForm.mikrotikId}
-                  onChange={(e) =>
-                    setIspForm({ ...ispForm, mikrotikId: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const mtId = e.target.value;
+                    const owner = allRouters.find((r) => r.id === mtId);
+                    setIspForm({
+                      ...ispForm,
+                      mikrotikId: mtId,
+                      siteId: owner ? (owner.siteId ?? "site_default") : ispForm.siteId,
+                      newSiteName: owner ? "" : ispForm.newSiteName,
+                    });
+                  }}
                 >
                   <option value="">Any / unassigned</option>
-                  {routers.map((mt) => (
+                  {allRouters.map((mt) => (
                     <option key={mt.id} value={mt.id}>
-                      {mt.name}
+                      {mt.name} · {siteName(mt.siteId)}
                     </option>
                   ))}
                 </select>
@@ -1089,6 +1112,8 @@ function NetworkPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <SiteMapDialog open={mapOpen} onOpenChange={setMapOpen} />
 
       <Dialog open={siteOpen} onOpenChange={setSiteOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
@@ -1275,6 +1300,7 @@ function NetworkPage() {
 
 function RouterCard({
   mt,
+  siteLabel,
   isps,
   onTest,
   onPrimary,
@@ -1288,6 +1314,7 @@ function RouterCard({
   disguising,
 }: {
   mt: MikroTik;
+  siteLabel: string;
   isps: Isp[];
   onTest: () => void;
   onPrimary: () => void;
@@ -1315,6 +1342,10 @@ function RouterCard({
             {mt.isPrimary ? " · Primary" : ""}
           </p>
           <h3 className="mt-1 font-display text-xl font-semibold">{mt.name}</h3>
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">
+            <MapPin className="size-3" />
+            {siteLabel}
+          </p>
           <p className="mt-1 font-mono text-xs text-muted">{mt.host}</p>
         </div>
         <Badge
@@ -1459,5 +1490,148 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <Label className="mb-1.5 block">{label}</Label>
       {children}
     </div>
+  );
+}
+
+function SiteField({
+  sites,
+  siteId,
+  newSiteName,
+  onChange,
+}: {
+  sites: Site[];
+  siteId: string;
+  newSiteName: string;
+  onChange: (siteId: string, newSiteName: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Field label="Site / town">
+        <select
+          className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
+          value={siteId}
+          onChange={(e) => onChange(e.target.value, e.target.value === NEW_SITE ? newSiteName : "")}
+        >
+          {sites.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+              {s.status === "INACTIVE" ? " (inactive)" : ""}
+            </option>
+          ))}
+          <option value={NEW_SITE}>+ New site / town…</option>
+        </select>
+      </Field>
+      {siteId === NEW_SITE ? (
+        <Field label="New site name">
+          <Input
+            required
+            autoFocus
+            placeholder="e.g. Nakuru Town"
+            value={newSiteName}
+            onChange={(e) => onChange(NEW_SITE, e.target.value)}
+          />
+        </Field>
+      ) : null}
+    </div>
+  );
+}
+
+function SiteMapDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["site-map"],
+    queryFn: () => getSiteMap(),
+    enabled: open,
+  });
+  const tone = (status: string) =>
+    status === "ONLINE" ? "ok" : status === "OFFLINE" ? "danger" : "warn";
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85dvh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Site map</DialogTitle>
+          <DialogDescription>
+            Which routers, ISP paths and packages belong to each site / town. Change a
+            router's or package's site by editing it.
+          </DialogDescription>
+        </DialogHeader>
+        {q.isLoading ? <p className="text-sm text-muted">Loading…</p> : null}
+        <div className="space-y-4">
+          {(q.data?.sites ?? []).map(({ site, routers, looseIsps, packages }) => (
+            <div key={site.id} className="rounded-xl border border-border p-4">
+              <div className="flex items-center justify-between">
+                <p className="flex items-center gap-1.5 font-display text-lg font-semibold">
+                  <MapPin className="size-4 text-accent" />
+                  {site.name}
+                </p>
+                <Badge tone={site.status === "ACTIVE" ? "ok" : "neutral"}>{site.status}</Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-subtle">
+                slug: {site.slug} · portal link: /portal?site={site.slug}
+              </p>
+              <div className="mt-3 space-y-2 text-sm">
+                {routers.length === 0 && looseIsps.length === 0 ? (
+                  <p className="text-muted">No routers or ISP paths in this site yet.</p>
+                ) : null}
+                {routers.map((r) => (
+                  <div key={r.id} className="rounded-lg bg-raised px-3 py-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">
+                        {r.name}
+                        {r.isPrimary ? " · primary" : ""}
+                      </span>
+                      <Badge tone={tone(r.status)}>{r.status}</Badge>
+                    </div>
+                    {r.isps.length > 0 ? (
+                      <ul className="mt-1 space-y-0.5 pl-3 text-xs text-muted">
+                        {r.isps.map((i) => (
+                          <li key={i.id} className="flex items-center justify-between">
+                            <span>↳ {i.name} ({i.type})</span>
+                            <span>{i.status}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1 pl-3 text-xs text-subtle">No ISP path attached.</p>
+                    )}
+                  </div>
+                ))}
+                {looseIsps.map((i) => (
+                  <div key={i.id} className="flex items-center justify-between rounded-lg bg-raised px-3 py-2">
+                    <span>
+                      {i.name} ({i.type}) <span className="text-xs text-subtle">no router</span>
+                    </span>
+                    <span className="text-xs text-muted">{i.status}</span>
+                  </div>
+                ))}
+                <p className="pt-1 text-xs uppercase tracking-wide text-subtle">
+                  Packages sold only here ({packages.length})
+                </p>
+                <p className="text-muted">
+                  {packages.length === 0
+                    ? "None — this site sells the all-sites packages."
+                    : packages.map((p) => `${p.name} (${p.price})`).join(", ")}
+                </p>
+              </div>
+            </div>
+          ))}
+          {q.data ? (
+            <div className="rounded-xl border border-dashed border-border p-4 text-sm">
+              <p className="font-medium">Sold at every site ({q.data.globalPackages.length})</p>
+              <p className="mt-1 text-muted">
+                {q.data.globalPackages.length === 0
+                  ? "No all-sites packages."
+                  : q.data.globalPackages.map((p) => p.name).join(", ")}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
