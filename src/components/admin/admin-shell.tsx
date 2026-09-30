@@ -72,10 +72,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-      <div className="mt-4 space-y-2 px-1">
+   <div className="mt-4 flex justify-end space-y-2 px-1">
   <OperatorUserButton />
-
 </div>
+
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
