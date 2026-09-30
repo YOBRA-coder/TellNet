@@ -46,46 +46,55 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-dvh bg-bg">
-      <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-surface/60 px-3 py-5 lg:flex">
-        <Link to="/admin/dashboard" className="mb-6 flex items-center gap-2 px-2">
-          <TelNetMark className="size-6" />
-          <span className="font-display text-base font-semibold">{APP_NAME}</span>
-        </Link>
-        <nav className="flex flex-1 flex-col gap-0.5">
-          {NAV.map((item) => {
-            const active =
-              pathname === item.to || pathname.startsWith(item.to + "/");
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "flex h-10 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors",
-                  active
-                    ? "bg-raised text-fg"
-                    : "text-muted hover:bg-raised/60 hover:text-fg",
-                )}
-              >
-                <item.icon className="size-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-   <div className="mt-4 flex justify-end space-y-2 px-1">
-  <OperatorUserButton />
-</div>
+  <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-surface/60 px-3 py-5 lg:flex">
+  <Link to="/admin/dashboard" className="mb-6 flex items-center gap-2 px-2 shrink-0">
+    <TelNetMark className="size-6" />
+    <span className="font-display text-base font-semibold">{APP_NAME}</span>
+  </Link>
+  
+  {/* Wrapped nav inside a scrollable container */}
+  <div className="flex-1 overflow-y-auto min-h-0 pr-1 -mr-1">
+    <nav className="flex flex-col gap-0.5">
+      {NAV.map((item) => {
+        const active =
+          pathname === item.to || pathname.startsWith(item.to + "/");
+        return (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={cn(
+              "flex h-10 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors",
+              active
+                ? "bg-raised text-fg"
+                : "text-muted hover:bg-raised/60 hover:text-fg",
+            )}
+          >
+            <item.icon className="size-4" />
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  </div>
 
-      </aside>
+  <div className="mt-4 space-y-2 px-1 shrink-0">
+    <OperatorUserButton />
+  </div>
+</aside>
+
 
       <div className="flex min-w-0 flex-1 flex-col">
+
         <header className="flex items-center justify-between border-b border-border px-4 py-3 lg:hidden">
           <Link to="/admin/dashboard" className="flex items-center gap-2">
             <TelNetMark className="size-6" />
             <span className="font-display font-semibold">{APP_NAME}</span>
           </Link>
-          <OperatorUserButton />
+          <div className="ml-auto">
+            <OperatorUserButton />
+          </div>
         </header>
+
         <div className="flex-1 px-4 py-5 sm:px-6 lg:px-8">{children}</div>
         <nav className="sticky bottom-0 grid grid-cols-4 border-t border-border bg-surface/95 px-1 py-1 lg:hidden">
           {NAV.slice(0, 3).map((item) => {
