@@ -131,7 +131,7 @@ function PortalHome() {
           <Link to="/portal/recover" className="text-muted hover:text-fg">
             Already paid? Recover my package
           </Link>
-          <Link to="/portal/connect" className="text-subtle hover:text-muted">
+          <Link to="/portal/connect" className="text-subtle hover:text-fg">
             Returning customer — connect
           </Link>
           <Link to="/portal/voucher" className="text-muted hover:text-fg">

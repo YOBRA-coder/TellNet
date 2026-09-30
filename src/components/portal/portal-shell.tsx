@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { TelNetMark } from "@/components/brand";
+import { Home } from "lucide-react";
 
 export function PortalShell({
   hotspotName,
@@ -24,13 +25,21 @@ export function PortalShell({
             {hotspotName}
           </span>
         </Link>
-        <nav className="flex items-center gap-4 text-xs text-subtle">
+        <nav className="flex items-center gap-4 text-xs text-base">
           <Link to="/portal/account" className="hover:text-muted">
             Account
           </Link>
           <Link to="/portal/rewards" className="hover:text-muted">
             Rewards
           </Link>
+          <Link
+  to="/"
+  aria-label="Go to public website"
+  title="Public website"
+  className="flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-fg active:scale-95"
+>
+  <Home className="h-5 w-5" />
+</Link>
         </nav>
       </header>
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 pb-8 pt-4">
