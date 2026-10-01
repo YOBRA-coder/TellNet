@@ -9,7 +9,7 @@ import { readSite } from "@/lib/device";
 import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { getPortalBootstrap, signOut } from "@/lib/fn/portal";
-import type { Package } from "@/lib/types";
+
 
 const portalRoute = getRouteApi("/portal");
 
@@ -84,14 +84,14 @@ function PortalHome() {
     }
     return (
       <PortalShell hotspotName={hotspot}>
-      {(q.data?.unreadNotices ?? 0) > 0 ? (
-        <Link
-          to="/portal/rewards"
-          className="mb-4 block rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok"
-        >
-          🎉 You have {q.data?.unreadNotices} new reward alert{q.data?.unreadNotices === 1 ? "" : "s"} — tap to view
-        </Link>
-      ) : null}
+        {(q.data?.unreadNotices ?? 0) > 0 ? (
+          <Link
+            to="/portal/rewards"
+            className="mb-4 block rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok"
+          >
+            🎉 You have {q.data?.unreadNotices} new reward alert{q.data?.unreadNotices === 1 ? "" : "s"} — tap to view
+          </Link>
+        ) : null}
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
           Welcome back
         </p>
@@ -137,41 +137,41 @@ function PortalHome() {
           <Link to="/portal/voucher" className="text-muted hover:text-fg">
             Have a voucher code?
           </Link>
-          
+
           <Link to="/portal/add-device" className="text-muted hover:text-fg">
             Add a device
           </Link>
-{device?.customerId ? (
-      <div className="mt-2 flex items-center justify-center">
-        <Button 
-          variant="ghost" 
-          onClick={() => out.mutate()} 
-          disabled={out.isPending}
-          className="w-full max-w-[200px]"
-        >
-          {out.isPending ? "Signing out..." : "Sign out"}
-        </Button>
-      </div>
-    ) : (
-      <div className="mt-2 flex flex-col gap-2 px-4 sm:flex-row sm:justify-center">
-        <Button asChild variant="ghost" size="sm">
-          <Link
-            to="/portal/auth"
-            search={{ mode: "signin", ref: "", next: "/portal/rewards" }}
-          >
-            Sign in
-          </Link>
-        </Button>
-        <Button asChild variant="default" size="sm">
-          <Link
-            to="/portal/auth"
-            search={{ mode: "signup", ref: "", next: "/portal/rewards" }}
-          >
-            Sign up
-          </Link>
-        </Button>
-      </div>
-    )}
+          {device?.customerId ? (
+            <div className="mt-2 flex items-center justify-center">
+              <Button
+                variant="ghost"
+                onClick={() => out.mutate()}
+                disabled={out.isPending}
+                className="w-full max-w-[200px]"
+              >
+                {out.isPending ? "Signing out..." : "Sign out"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-2 flex flex-col gap-2 px-4 sm:flex-row sm:justify-center">
+              <Button asChild variant="ghost" size="sm">
+                <Link
+                  to="/portal/auth"
+                  search={{ mode: "signin", ref: "", next: "/portal/rewards" }}
+                >
+                  Sign in
+                </Link>
+              </Button>
+              <Button asChild variant="default" size="sm">
+                <Link
+                  to="/portal/auth"
+                  search={{ mode: "signup", ref: "", next: "/portal/rewards" }}
+                >
+                  Sign up
+                </Link>
+              </Button>
+            </div>
+          )}
         </div>
       }
     >
@@ -207,10 +207,10 @@ function PortalHome() {
           </p>
           {internetUp && (
             <p className="mt-4 rounded-lg border border-warn/20 bg-warn/10 px-3 py-2 text-sm text-warn">
-            Connected to the Internet.
+              Connected to the Internet.
             </p>
           )}
-          <div className="mt-8">
+        <div className="mt-8 w-full md:relative md:left-1/2 md:-translate-x-1/2 md:w-[200%] md:max-w-[960px]">
             <PackageBrowser
               packages={packages}
               currency={settings.currency}

@@ -1,36 +1,49 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link } from "@tanstack/react-router";
 import { ArrowRight, ShieldCheck, Smartphone, Wifi } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
 import { TelNetMark } from "@/components/brand";
-import { PackageCard } from "@/components/portal/package-card";
+import { PackageBrowser } from "@/components/portal/package-browser";
 import { Button } from "@/components/ui/button";
 import { APP_NAME, HOTSPOT_FALLBACK } from "@/lib/brand-copy";
-import { getPublicHome, getPublicSettings } from "@/lib/fn/public";
-import { Package } from "@/lib/types";
+import { getPublicHome } from "@/lib/fn/public";
 import { PortalSupportSection } from "@/components/portal/portal-shell";
-
-
+import { readSite } from "@/lib/device";
+import { getPortalBootstrap } from "@/lib/fn/portal";
+import { useDevice } from "@/hooks/use-device";
 
 export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
   const { data } = useQuery({ queryKey: ["home"], queryFn: () => getPublicHome() });
   const hotspot = data?.hotspotName ?? HOTSPOT_FALLBACK;
-  const packages = data?.packages ?? [];
+  // const packages = data?.packages ?? [];
   const currency = data?.currency ?? "KES";
 
   // State to track if header should be visible
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  const q = useQuery({
-    queryKey: ["portal"],
-    queryFn: () => getPublicSettings(),
-  });
+  const { device, ready, update } = useDevice();
+
+const q = useQuery({
+  queryKey: ["portal", device?.token, readSite() ?? ""],
+  enabled: ready && Boolean(device),
+  queryFn: () =>
+    getPortalBootstrap({
+      data: {
+        token: device!.token,
+        phone: device?.phone ?? undefined,
+        customerId: device?.customerId ?? undefined,
+        site: readSite(),
+      },
+    }),
+});
+
+const settings = (q.data?.settings ?? {}) as Record<string, any>;
+const packages = q.data?.packages ?? [];
 
 
-  const settings = q.data ?? q.data;
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
@@ -57,8 +70,9 @@ function Home() {
     <div className="atmosphere min-h-dvh">
       {/* Dynamic Smart Header */}
       <header
-        className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${isVisible ? "translate-y-0" : "-translate-y-full"
-          }`}
+        className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${
+          isVisible ? "translate-y-0" : "-translate-y-full"
+        }`}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
           <Link to="/" className="flex items-center gap-2">
@@ -95,7 +109,6 @@ function Home() {
               <ArrowRight className="size-4" />
             </Link>
           </Button>
-
         </div>
         {data?.internetUp && (
           <p className="mt-6 max-w-md rounded-lg border border-warn/20 bg-warn/10 px-3 py-2 text-sm text-warn">
@@ -113,32 +126,35 @@ function Home() {
             Pay. Connect. Stay online.
           </h2>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {!data
-            ? [1, 2, 3, 4].map((n) => (
-              <div
-                key={n}
-                className="h-48 animate-pulse rounded-2xl border border-border bg-surface"
-              />
-            ))
-            : packages.map((pkg: Package, i: number) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                currency={currency}
-                maxDevices={pkg.maxDevices}
-                style={{ animationDelay: `${i * 60}ms` }}
-              />
-            ))}
+
+        {/* Replaced individual PackageCards with PackageBrowser using portal properties */}
+        <div className="mt-4">
+          {!data ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[1, 2, 3, 4].map((n) => (
+                <div
+                  key={n}
+                  className="h-48 animate-pulse rounded-2xl border border-border bg-surface"
+                />
+              ))}
+            </div>
+          ) : (
+            <PackageBrowser
+              packages={packages}
+              currency={settings?.currency ?? currency}
+              registered={q.data ? Boolean(q.data.member?.registered) : null}
+              requireAccountForMulti={Boolean(settings?.requireAccountMultiDevice)}
+              rewardsOn={Boolean(settings?.loyaltyEnabled || settings?.referralEnabled)}
+            />
+          )}
         </div>
+
         <p className="mt-5 text-center text-sm">
           <Link to="/portal/recover" className="text-muted hover:text-fg">
             Already paid? Recover my package
           </Link>
         </p>
-
       </section>
-
 
       <section className="mx-auto grid max-w-5xl gap-4 px-5 pb-20 sm:grid-cols-3">
         <Feature
@@ -157,9 +173,9 @@ function Home() {
           body="Switch Wi-Fi off and return later. If time remains, tap Connect. No second charge."
         />
       </section>
+
       <div className="mx-auto grid max-w-5xl gap-4 px-5 pb-20 sm:grid-cols-3">
         {settings?.supportPhone || settings?.supportWhatsapp ? (
-          /* FIXED: Added col-span-full to stretch across all grid columns, allowing mx-auto to center it perfectly */
           <div className="col-span-full mt-6 text-center text-sm text-muted">
             <PortalSupportSection
               supportPhone={settings.supportPhone}
@@ -169,6 +185,7 @@ function Home() {
           </div>
         ) : null}
       </div>
+
       <footer className="mx-auto flex max-w-5xl items-center justify-between px-5 pb-10 text-xs text-subtle">
         <span>
           {APP_NAME} · Independent of the ISP path carrying your traffic
@@ -200,4 +217,3 @@ function Feature({
     </article>
   );
 }
-
