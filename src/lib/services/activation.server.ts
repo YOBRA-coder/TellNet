@@ -1,3 +1,4 @@
+import { getEffectiveCapacity } from "@/lib/services/capacity.server";
 import { getSql } from "@/lib/db";
 import { nid, asNumber } from "@/lib/utils";
 import {
@@ -231,12 +232,14 @@ export async function activateFromPayment(
     Math.floor((expiry.getTime() - Date.now()) / 1000),
   );
 
+  // Limits follow the ISP path(s) currently connected (see capacity.server.ts).
+  const capacity = await getEffectiveCapacity();
   const online = (
     await sql<{ n: number }>`
       select count(*)::int as n from sessions where status = 'ACTIVE'
     `
   )[0];
-  if (settings.maxUsers > 0 && asNumber(online?.n) >= settings.maxUsers) {
+  if (capacity.maxUsers > 0 && asNumber(online?.n) >= capacity.maxUsers) {
     if (!packRow) {
       const id = nid("cp");
       await sql`
@@ -258,13 +261,13 @@ export async function activateFromPayment(
     `;
     await logEvent(
       "CAPACITY",
-      `Hotspot at ${settings.maxUsers} users. Payment ${String(pay.mpesa_transaction_id ?? paymentId)} held for retry.`,
+      `Hotspot at ${capacity.maxUsers} users. Payment ${String(pay.mpesa_transaction_id ?? paymentId)} held for retry.`,
     );
     return { ok: false, reason: "capacity" };
   }
 
-  const downloadKbps = Math.min(effDownload, settings.perUserMaxKbps || effDownload);
-  const uploadKbps = Math.min(effUpload, settings.perUserMaxKbps || effUpload);
+  const downloadKbps = Math.min(effDownload, capacity.perUserMaxKbps || effDownload);
+  const uploadKbps = Math.min(effUpload, capacity.perUserMaxKbps || effUpload);
 
   try {
     await createAndActivateUser({

@@ -16,7 +16,9 @@ export async function expireDuePackages(): Promise<number> {
   if (sweeping) return 0;
   sweeping = true;
   try {
-    return await sweepExpired();
+    const n = await sweepExpired();
+    await tidyVouchers().catch((err) => console.error("[expiry] voucher tidy failed", err));
+    return n;
   } finally {
     sweeping = false;
   }
@@ -118,4 +120,18 @@ async function sweepExpired(): Promise<number> {
     }
   }
   return due.length;
+}
+
+let lastVoucherTidy = 0;
+/** At most once a minute: mark lapsed vouchers EXPIRED and apply the auto-delete setting. */
+async function tidyVouchers() {
+  if (Date.now() - lastVoucherTidy < 60_000) return;
+  lastVoucherTidy = Date.now();
+  const sql = await getSql();
+  await sql`
+    update vouchers set status = 'EXPIRED', updated_at = now()
+    where status = 'AVAILABLE' and expires_at is not null and expires_at < now()
+  `;
+  const { autoCleanVouchers } = await import("./vouchers.server");
+  await autoCleanVouchers();
 }

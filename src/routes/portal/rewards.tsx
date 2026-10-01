@@ -46,64 +46,20 @@ function RewardsPage() {
     onError: () => toast.error("Could not redeem points."),
   });
 
-const share = useMutation({
-  mutationFn: async (code: string) => {
-    const link = `${window.location.origin}/portal/auth?mode=signup&ref=${code}`;
-    const text = `Use my code ${code} to get bonus minutes on your first package.`;
-    const fullText = `${text} ${link}`;
-
-    let copied = false;
-
-    // 1. IMMEDIATELY copy to clipboard before awaiting anything to preserve user activation
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      try {
-        await navigator.clipboard.writeText(fullText);
-        copied = true;
-      } catch (err) {
-        console.warn("Modern clipboard failed:", err);
-      }
-    }
-
-    // 2. Legacy fallback if modern clipboard was blocked/unsupported
-    if (!copied) {
-      try {
-        const textarea = document.createElement("textarea");
-        textarea.value = fullText;
-        textarea.style.position = "fixed"; // Prevent scrolling down page
-        document.body.appendChild(textarea);
-        textarea.select();
-        copied = document.execCommand("copy");
-        document.body.removeChild(textarea);
-      } catch (err) {
-        console.error("Legacy copy failed:", err);
-      }
-    }
-
-    // 3. Launch native sharing after the clipboard operation is done
-    if (typeof navigator.share === "function") {
-      try {
+  const share = useMutation({
+    mutationFn: async (code: string) => {
+      const link = `${window.location.origin}/portal/auth?mode=signup&ref=${code}`;
+      const text = `Use my code ${code} to get bonus minutes on your first package.`;
+      if (typeof navigator.share === "function") {
         await navigator.share({ title: "Get online", text, url: link });
         return "shared";
-      } catch (error) {
-        // Native share cancelled or failed, but text is already copied!
-        console.log("Native share cancelled/failed:", error);
       }
-    }
-
-    // Return status based on whether the copy block succeeded
-    if (copied) return "copied";
-    throw new Error("Copy failed completely");
-  },
-  onSuccess: (status) => {
-    if (status === "copied") {
-      toast.success("Referral link copied.");
-    } else if (status === "shared") {
-      toast.success("Link copied & share menu opened!");
-    }
-  },
-  onError: () => toast.error("Couldn't copy link — please copy it manually."),
-});
-
+      await navigator.clipboard.writeText(`${text} ${link}`);
+      return "copied";
+    },
+    onSuccess: (r) => r === "copied" && toast.success("Referral link copied."),
+    onError: () => toast.error("Couldn't share — copy the code manually."),
+  });
 
   const out = useMutation({
     mutationFn: () => signOut({ data: { token: device!.token } }),
@@ -234,9 +190,9 @@ const share = useMutation({
             <p className="text-sm text-muted">Rewards aren't running right now. Check back later.</p>
           ) : null}
 
-  <div className="flex items-center justify-center">
-  <Button variant="ghost" onClick={() => out.mutate()} disabled={out.isPending}>
-    Sign out
+         <div className="flex justify-center items-center">
+  <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending}>
+   {out.isPending ? "Signing out..." : "Sign out"}
   </Button>
 </div>
 

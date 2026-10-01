@@ -156,6 +156,12 @@ if (!q.data) {
           label="Today's revenue"
           value={formatKes(cards.todayRevenue, settings.currency)}
           icon={Banknote}
+          note={
+            "Successful M-Pesa payments only — failed, cancelled and pending are not counted." +
+            (cards.todayVouchers > 0
+              ? ` ${cards.todayVouchers} voucher${cards.todayVouchers === 1 ? "" : "s"} redeemed today (${formatKes(cards.todayVoucherValue, settings.currency)}) not included.`
+              : "")
+          }
         />
         <Stat label="Online users" value={String(cards.onlineUsers)} icon={Wifi} />
         <Stat
@@ -387,11 +393,13 @@ function Stat({
   value,
   icon: Icon,
   warn,
+  note,
 }: {
   label: string;
   value: string;
   icon: typeof Banknote;
   warn?: boolean;
+  note?: string;
 }) {
   return (
     <Card className="p-4">
@@ -402,6 +410,7 @@ function Stat({
       <p className="mt-3 font-display text-2xl font-semibold tabular-nums">
         {value}
       </p>
+      {note ? <p className="mt-1 text-[11px] leading-snug text-subtle">{note}</p> : null}
     </Card>
   );
 }

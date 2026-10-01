@@ -20,9 +20,10 @@ export function formatDuration(minutes: number): string {
     const hours = minutes / 60;
     return hours === 1 ? "1 HOUR" : `${hours} HOURS`;
   }
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}h ${mins}m`;
+  const d = Math.floor(minutes / 1440);
+  const h = Math.floor((minutes % 1440) / 60);
+  const m = minutes % 60;
+  return [d ? `${d}d` : "", h ? `${h}h` : "", m ? `${m}m` : ""].filter(Boolean).join(" ");
 }
 
 export function formatBytes(bytes: number): string {

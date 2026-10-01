@@ -78,6 +78,7 @@ async function loadCatalog(siteSlug?: string | null) {
       referralEnabled: settings.referralEnabled,
       referralMinPackagePrice: settings.referralMinPackagePrice,
       maxDevicesPerPackage: settings.maxDevicesPerPackage,
+      requireAccountMultiDevice: settings.requireAccountMultiDevice,
     },
     packages,
     internetUp,
@@ -308,6 +309,19 @@ export const startPayment = createServerFn({ method: "POST" })
     `;
     const pkg = pkgs[0];
     if (!pkg) return { ok: false as const, error: "That package is no longer available." };
+
+    // 2-device packages are a perk of a free account (see Settings). The
+    // portal shows a sign-up prompt; this is the check that actually enforces it.
+    if (settings.requireAccountMultiDevice && Number(pkg.max_devices) >= 2) {
+      const member = await getSessionCustomer(data.token);
+      if (!member?.registered) {
+        return {
+          ok: false as const,
+          error: "Create a free account to use a 2-device package — or pick a 1-device package.",
+          accountRequired: true as const,
+        };
+      }
+    }
 
     const existing = await sql<{ id: string; status: string }>`
       select id, status from customers where phone = ${phone} limit 1

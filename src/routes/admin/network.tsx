@@ -60,6 +60,15 @@ const emptyRouter = {
   newSiteName: "",
 };
 
+/** Typical starting limits per line type. Airtel/Safaricom 5G plans are usually 15 or 30 Mbps. */
+const ISP_PRESETS: Record<string, { totalMbps: number; perUserMbps: number; users: number }> = {
+  AIRTEL: { totalMbps: 30, perUserMbps: 5, users: 25 },
+  SAFARICOM: { totalMbps: 30, perUserMbps: 5, users: 25 },
+  LTE: { totalMbps: 15, perUserMbps: 3, users: 15 },
+  STARLINK: { totalMbps: 100, perUserMbps: 10, users: 60 },
+  FIBRE: { totalMbps: 100, perUserMbps: 10, users: 60 },
+};
+
 const emptyIsp = {
   id: "" as string,
   name: "",
@@ -1010,12 +1019,18 @@ function NetworkPage() {
                 value={ispForm.type}
                 onChange={(e) => {
                   const type = e.target.value as typeof ispForm.type;
-                  const mobile = type === "AIRTEL" || type === "SAFARICOM" || type === "LTE";
+                  // Sensible starting limits for a NEW path; editing an existing one never overwrites.
+                  const preset = ISP_PRESETS[type];
                   setIspForm({
                     ...ispForm,
                     type,
-                    totalKbps: mobile ? 30720 : ispForm.totalKbps,
-                    maxUsers: mobile ? 25 : ispForm.maxUsers,
+                    ...(ispForm.id || !preset
+                      ? {}
+                      : {
+                          totalKbps: preset.totalMbps * 1024,
+                          perUserMaxKbps: preset.perUserMbps * 1024,
+                          maxUsers: preset.users,
+                        }),
                   });
                 }}
               >
@@ -1062,6 +1077,25 @@ function NetworkPage() {
                 </select>
               </Field>
             )}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+              <span>Line speed:</span>
+              {[15, 30, 50, 100, 200].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className="rounded-full border border-border px-2.5 py-1 hover:border-accent hover:text-fg"
+                  onClick={() =>
+                    setIspForm({
+                      ...ispForm,
+                      totalKbps: m * 1024,
+                      perUserMaxKbps: Math.min(ispForm.perUserMaxKbps, m * 1024),
+                    })
+                  }
+                >
+                  {m} Mbps
+                </button>
+              ))}
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Total (Mbps)">
                 <Input

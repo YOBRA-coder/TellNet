@@ -5,6 +5,7 @@
  * The UDP listener lives in radius-listener.server.ts and starts with the app.
  */
 import { getSql } from "@/lib/db";
+import { getEffectiveCapacity } from "@/lib/services/capacity.server";
 
 export type RadiusUser = {
   username: string;
@@ -30,12 +31,10 @@ export async function radiusLookupUser(username: string): Promise<RadiusUser | n
     mikrotik_username: string | null;
     package_name: string;
     max_devices: number | null;
-    per_user_max_kbps: number | null;
   }>`
     select cp.id, cp.expiry_time, cp.speed_limit_kbps, cp.radius_password,
            cp.mikrotik_username, pkg.name as package_name, pkg.upload_kbps,
-           pkg.max_devices,
-           (select per_user_max_kbps from settings where id = 'default') as per_user_max_kbps
+           pkg.max_devices
     from customer_packages cp
     join customers c on c.id = cp.customer_id
     join packages pkg on pkg.id = cp.package_id
@@ -57,7 +56,7 @@ export async function radiusLookupUser(username: string): Promise<RadiusUser | n
   // No stored secret = this package predates RADIUS support; it can't be
   // authenticated over RADIUS until it is next (re)activated on the router.
   if (!row.radius_password) return null;
-  const cap = Number(row.per_user_max_kbps) || Infinity;
+  const cap = (await getEffectiveCapacity()).perUserMaxKbps || Infinity;
   return {
     username: row.mikrotik_username || name,
     password: row.radius_password,

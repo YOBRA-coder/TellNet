@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { PackageCard } from "@/components/portal/package-card";
+import { PackageBrowser } from "@/components/portal/package-browser";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
@@ -84,14 +84,14 @@ function PortalHome() {
     }
     return (
       <PortalShell hotspotName={hotspot}>
-        {(q.data?.unreadNotices ?? 0) > 0 ? (
-          <Link
-            to="/portal/rewards"
-            className="mb-4 block rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok"
-          >
-            🎉 You have {q.data?.unreadNotices} new reward alert{q.data?.unreadNotices === 1 ? "" : "s"} — tap to view
-          </Link>
-        ) : null}
+      {(q.data?.unreadNotices ?? 0) > 0 ? (
+        <Link
+          to="/portal/rewards"
+          className="mb-4 block rounded-xl border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok"
+        >
+          🎉 You have {q.data?.unreadNotices} new reward alert{q.data?.unreadNotices === 1 ? "" : "s"} — tap to view
+        </Link>
+      ) : null}
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
           Welcome back
         </p>
@@ -137,11 +137,11 @@ function PortalHome() {
           <Link to="/portal/voucher" className="text-muted hover:text-fg">
             Have a voucher code?
           </Link>
+          
           <Link to="/portal/add-device" className="text-muted hover:text-fg">
             Add a device
           </Link>
-     {/* Clean dynamic conditional toggle */}
-    {device?.customerId ? (
+{device?.customerId ? (
       <div className="mt-2 flex items-center justify-center">
         <Button 
           variant="ghost" 
@@ -207,19 +207,17 @@ function PortalHome() {
           </p>
           {internetUp && (
             <p className="mt-4 rounded-lg border border-warn/20 bg-warn/10 px-3 py-2 text-sm text-warn">
-              Connected to the Internet.
+            Connected to the Internet.
             </p>
           )}
-          <div className="mt-8 flex flex-col gap-3">
-            {packages.map((pkg: Package, i: number) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                currency={settings.currency}
-                maxDevices={pkg.maxDevices}
-                style={{ animationDelay: `${i * 60}ms` }}
-              />
-            ))}
+          <div className="mt-8">
+            <PackageBrowser
+              packages={packages}
+              currency={settings.currency}
+              registered={q.data ? Boolean(q.data.member?.registered) : null}
+              requireAccountForMulti={Boolean(settings.requireAccountMultiDevice)}
+              rewardsOn={Boolean(settings.loyaltyEnabled || settings.referralEnabled)}
+            />
           </div>
         </>
       )}

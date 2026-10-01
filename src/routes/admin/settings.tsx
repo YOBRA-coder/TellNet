@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   applyRadiusToRouters,
   checkRadiusRouters,
+  getCapacityStatus,
   getRadiusStatus,
   getSettingsAdmin,
   saveSettingsAdmin,
@@ -34,6 +35,8 @@ function SettingsPage() {
     mpesaEnv: "sandbox" as "sandbox" | "production",
     mpesaCallbackUrl: "",
     defaultUploadKbps: 1024,
+    capacityMode: "PER_ISP" as "PER_ISP" | "GLOBAL",
+    requireAccountMultiDevice: true,
     ispTotalKbps: 30720,
     perUserMaxKbps: 5120,
     maxUsers: 25,
@@ -71,6 +74,8 @@ function SettingsPage() {
       mpesaEnv: q.data.mpesaEnv === "production" ? "production" : "sandbox",
       mpesaCallbackUrl: q.data.mpesaCallbackUrl ?? "",
       defaultUploadKbps: q.data.defaultUploadKbps,
+      capacityMode: q.data.capacityMode,
+      requireAccountMultiDevice: q.data.requireAccountMultiDevice,
       ispTotalKbps: q.data.ispTotalKbps,
       perUserMaxKbps: q.data.perUserMaxKbps,
       maxUsers: q.data.maxUsers,
@@ -106,10 +111,12 @@ function SettingsPage() {
       setForm((f) => ({ ...f, radiusSecret: "" }));
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["radius-status"] });
+      qc.invalidateQueries({ queryKey: ["capacity"] });
     },
     onError: () => toast.error("Could not save settings. Check the values and try again."),
   });
 
+  const capQ = useQuery({ queryKey: ["capacity"], queryFn: () => getCapacityStatus() });
   const radiusQ = useQuery({
     queryKey: ["radius-status"],
     queryFn: () => getRadiusStatus(),
@@ -162,24 +169,76 @@ function SettingsPage() {
             onChange={(e) => setForm({ ...form, currency: e.target.value })}
           />
         </Field>
-        <Field label="Default upload (kbps)">
-          <Input
-            type="number"
-            min={64}
-            value={form.defaultUploadKbps}
-            onChange={(e) =>
-              setForm({ ...form, defaultUploadKbps: Number(e.target.value) })
-            }
-          />
-        </Field>
+        <Toggle
+          label="Free account needed for 2-device packages"
+          hint="Guests can buy 1-device packages. 2-device packages ask them to create a free account (phone + PIN) first. The portal shows a sign-up prompt."
+          checked={form.requireAccountMultiDevice}
+          onCheckedChange={(v) => setForm({ ...form, requireAccountMultiDevice: v })}
+        />
       </Card>
 
       <Card className="space-y-4 p-5">
         <h2 className="font-display text-lg font-semibold">ISP capacity</h2>
         <p className="text-sm leading-relaxed text-muted">
-          Pool for Airtel 5G, Safaricom 5G, Starlink, fibre and any other WAN.
-          TelNet caps each customer at the per-user maximum even if the package
-          is higher, and holds new activations when the hotspot is full.
+          Every ISP path has its own limits (an Airtel 5G line is 15 or 30 Mbps, Starlink is much
+          more). Set them per path on the Network page; TelNet then caps each customer and holds new
+          activations using the ISP(s) that are connected right now.
+        </p>
+        <Toggle
+          label="Use each ISP's own limits"
+          hint="Off = one fixed set of limits (below) for every ISP."
+          checked={form.capacityMode === "PER_ISP"}
+          onCheckedChange={(v) => setForm({ ...form, capacityMode: v ? "PER_ISP" : "GLOBAL" })}
+        />
+
+        {capQ.data ? (
+          <div className="space-y-2 rounded-lg border border-border bg-raised p-3 text-sm">
+            <p className="font-medium">
+              In effect now: {Math.round(capQ.data.totalKbps / 1024)} Mbps total ·{" "}
+              {Math.round(capQ.data.perUserMaxKbps / 1024)} Mbps per user · {capQ.data.maxUsers} seats
+            </p>
+            <p className="text-xs text-subtle">
+              {capQ.data.source === "isp"
+                ? "Taken from the ISP paths marked ✓ below (total and seats add up; per-user is the best line's cap)."
+                : capQ.data.mode === "GLOBAL"
+                  ? "Taken from the fixed limits below."
+                  : "No ISP paths added yet, so the fallback limits below are used."}
+            </p>
+            {capQ.data.paths.length > 0 ? (
+              <ul className="space-y-1 text-xs text-muted">
+                {capQ.data.paths.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      {p.counted ? "✓ " : "— "}
+                      {p.name} <span className="text-subtle">({p.status.toLowerCase()})</span>
+                    </span>
+                    <span className="tabular-nums">
+                      {Math.round(p.totalKbps / 1024)} / {Math.round(p.perUserMaxKbps / 1024)} Mbps · {p.maxUsers} seats
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <Link to="/admin/network" className="inline-block text-xs text-accent underline">
+              Edit an ISP path's limits
+            </Link>
+            {capQ.data.fastestPackageKbps && capQ.data.fastestPackageKbps > capQ.data.perUserMaxKbps ? (
+              <p className="rounded-md border border-warn/30 bg-warn/10 p-2 text-xs text-warn">
+                Heads-up: your fastest package is {Math.round(capQ.data.fastestPackageKbps / 1024)} Mbps but
+                customers are capped at {Math.round(capQ.data.perUserMaxKbps / 1024)} Mbps, so they never get
+                the full package speed.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <p className="pt-1 text-sm font-medium">
+          {form.capacityMode === "PER_ISP" ? "Fallback limits" : "Fixed limits"}
+        </p>
+        <p className="-mt-2 text-xs text-subtle">
+          {form.capacityMode === "PER_ISP"
+            ? "Only used when no ISP path has been added."
+            : "Applied to every customer whichever ISP is connected."}
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Total available (Mbps)">
@@ -222,9 +281,7 @@ function SettingsPage() {
             />
           </Field>
         </div>
-        <p className="text-xs text-subtle">
-          Default hotspot pool: 30 Mbps total · 5 Mbps per user · 20–30 seats.
-        </p>
+        <p className="text-xs text-subtle">Save settings to apply changes.</p>
       </Card>
 
       <Card className="space-y-4 p-5">

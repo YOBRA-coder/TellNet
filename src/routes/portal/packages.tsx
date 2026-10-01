@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
-import { PackageCard } from "@/components/portal/package-card";
+import { PackageBrowser } from "@/components/portal/package-browser";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { useDevice } from "@/hooks/use-device";
 import { readSite } from "@/lib/device";
@@ -64,16 +64,14 @@ function PackagesPage() {
             purchase queues automatically and starts the moment your current
             one ends — it won't cut you off early.
           </p>
-          <div className="mt-6 flex flex-col gap-3">
-            {packages.map((pkg: Package, i: number) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                currency={settings.currency}
-                maxDevices={pkg.maxDevices}
-                style={{ animationDelay: `${i * 60}ms` }}
-              />
-            ))}
+          <div className="mt-6">
+            <PackageBrowser
+              packages={packages}
+              currency={settings.currency}
+              registered={q.data ? Boolean(q.data.member?.registered) : null}
+              requireAccountForMulti={Boolean(settings.requireAccountMultiDevice)}
+              rewardsOn={Boolean(settings.loyaltyEnabled || settings.referralEnabled)}
+            />
           </div>
         </>
       )}

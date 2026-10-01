@@ -100,6 +100,9 @@ export type Settings = {
   referralMinPackagePrice: number;
   studentBlockedDomains: string;
   /** RADIUS (multi-AP). The shared secret itself is never sent to the browser. */
+  capacityMode: "PER_ISP" | "GLOBAL";
+  requireAccountMultiDevice: boolean;
+  voucherAutoCleanDays: number;
   radiusEnabled: boolean;
   hasRadiusSecret: boolean;
   radiusAuthPort: number;

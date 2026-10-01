@@ -109,6 +109,9 @@ export function mapSettings(row: SqlRow): Settings {
     studentBlockedDomains: String(
       row.student_blocked_domains ?? "facebook.com,instagram.com,tiktok.com",
     ),
+    capacityMode: row.capacity_mode === "GLOBAL" ? "GLOBAL" : "PER_ISP",
+    requireAccountMultiDevice: row.require_account_multi_device == null ? true : asBool(row.require_account_multi_device),
+    voucherAutoCleanDays: asNumber(row.voucher_auto_clean_days, 0),
     radiusEnabled: asBool(row.radius_enabled),
     hasRadiusSecret: Boolean(row.radius_secret),
     radiusAuthPort: asNumber(row.radius_auth_port, 1812),

@@ -65,7 +65,15 @@ function PaymentPage() {
           site: readSite(),
         },
       });
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) {
+        if ("accountRequired" in res && res.accountRequired) {
+          navigate({
+            to: "/portal/auth",
+            search: { mode: "signup", ref: "", next: `/portal/payment?packageId=${packageId}` },
+          });
+        }
+        throw new Error(res.error);
+      }
       return res;
     },
     onSuccess: (res) => {
@@ -166,9 +174,15 @@ function PaymentPage() {
       </form>
       <Link
         to="/portal/recover"
-        className="mt-5 text-center text-sm text-muted hover:text-fg"
+        className="mt-2 text-center text-sm text-muted hover:text-fg"
       >
         Already paid?
+      </Link>
+ <Link
+        to="/portal/packages"
+        className="mt-2 text-center text-sm text-muted hover:text-fg"
+      >
+        Select another Package
       </Link>
     </PortalShell>
   );

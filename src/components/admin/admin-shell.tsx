@@ -85,15 +85,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
 
-        <header className="flex items-center justify-between border-b border-border px-4 py-3 lg:hidden">
-          <Link to="/admin/dashboard" className="flex items-center gap-2">
-            <TelNetMark className="size-6" />
-            <span className="font-display font-semibold">{APP_NAME}</span>
-          </Link>
-          <div className="ml-auto">
-            <OperatorUserButton />
-          </div>
-        </header>
+<header className="sticky top-0 z-50 bg-black flex items-center justify-between border-b border-border px-4 py-3 lg:hidden"> 
+  <Link to="/admin/dashboard" className="flex items-center gap-2"> 
+    <TelNetMark className="size-6" /> 
+    <span className="font-display font-semibold">{APP_NAME}</span> 
+  </Link> 
+  <div className="ml-auto"> 
+    <OperatorUserButton /> 
+  </div> 
+</header>
+
+
+
 
         <div className="flex-1 px-4 py-5 sm:px-6 lg:px-8">{children}</div>
         <nav className="sticky bottom-0 grid grid-cols-4 border-t border-border bg-surface/95 px-1 py-1 lg:hidden">

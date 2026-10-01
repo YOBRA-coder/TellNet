@@ -244,6 +244,10 @@ function PackagesAdminPage() {
             className="min-h-0 flex-1 overflow-y-auto py-4 pr-2"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!(Number(form.durationMinutes) >= 1)) {
+                toast.error("Set a duration of at least 1 minute.");
+                return;
+              }
               save.mutate();
             }}
           >
@@ -269,17 +273,10 @@ function PackagesAdminPage() {
                 />
               </Field>
 
-              <Field label="Duration (minutes)">
-                <Input
-                  type="number"
-                  min={1}
-                  value={form.durationMinutes}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      durationMinutes: Number(e.target.value),
-                    })
-                  }
+              <Field label="Duration">
+                <DurationInput
+                  minutes={form.durationMinutes}
+                  onChange={(m) => setForm({ ...form, durationMinutes: m })}
                 />
               </Field>
 
@@ -485,6 +482,72 @@ function Field({
     <div className={className}>
       <Label className="mb-1.5 block">{label}</Label>
       {children}
+    </div>
+  );
+}
+
+/** Duration as days / hours / minutes (stored as total minutes). */
+function DurationInput({
+  minutes,
+  onChange,
+}: {
+  minutes: number;
+  onChange: (minutes: number) => void;
+}) {
+  const total = Math.max(0, Math.floor(Number(minutes) || 0));
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  const mins = total % 60;
+  const set = (d: number, h: number, m: number) =>
+    onChange(Math.max(0, d) * 1440 + Math.max(0, h) * 60 + Math.max(0, m));
+  const num = (v: string) => Math.max(0, Math.floor(Number(v) || 0));
+  const box = "flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm";
+  const presets: [string, number][] = [
+    ["30 min", 30],
+    ["1 hr", 60],
+    ["3 hrs", 180],
+    ["1 day", 1440],
+    ["1 week", 10080],
+    ["1 month", 43200],
+  ];
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <label className="text-xs text-subtle">
+          Days
+          <input type="number" inputMode="numeric" min={0} className={box + " mt-1"} value={days}
+            onChange={(e) => set(num(e.target.value), hours, mins)} />
+        </label>
+        <label className="text-xs text-subtle">
+          Hours
+          <input type="number" inputMode="numeric" min={0} max={23} className={box + " mt-1"} value={hours}
+            onChange={(e) => set(days, num(e.target.value), mins)} />
+        </label>
+        <label className="text-xs text-subtle">
+          Minutes
+          <input type="number" inputMode="numeric" min={0} max={59} className={box + " mt-1"} value={mins}
+            onChange={(e) => set(days, hours, num(e.target.value))} />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {presets.map(([label, m]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => onChange(m)}
+            className={`rounded-full border px-2.5 py-1 text-xs ${
+              total === m ? "border-accent text-fg" : "border-border text-muted hover:border-accent/50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-subtle">
+        {total < 1
+          ? "Enter at least 1 minute."
+          : `= ${String(days).padStart(2, "0")} days ${String(hours).padStart(2, "0")} hrs ${String(mins).padStart(2, "0")} mins (${total.toLocaleString()} minutes)`}
+      </p>
     </div>
   );
 }

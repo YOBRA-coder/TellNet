@@ -1,4 +1,24 @@
-# Changes — customer accounts, sites, rewards page, RADIUS, network map
+# Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish
+
+- **Vouchers management** (migration `0027_guest_limits_voucher_clean.sql`): status tabs (Available/Redeemed/Expired/All),
+  search, batch list with counts, paging; delete one / a batch / all redeemed / all expired; optional **auto-delete
+  redeemed vouchers after 1/7/30/90 days**; "Valid for" expiry when generating; **Print slips** (3-up, cut lines) and CSV.
+  Deleting a voucher never touches Payments (payment keeps its `VCH-<code>` reference).
+- **Portal packages**: compact cards + a small tab bar (All / 1 device / 2 devices) on top.
+- **Guest → account prompt**: "Create free account to unlock 2 devices and referral rewards." 2-device packages now need a
+  free account (enforced when paying and when redeeming a voucher; Settings → "Free account needed for 2-device packages" turns it off).
+  Voucher guests no longer get a referral code.
+- **Package duration** is entered as days / hours / minutes (quick picks: 30 min … 1 week, 1 month).
+- **Revenue** counts successful M-Pesa payments only (failed/cancelled/pending excluded); voucher and loyalty-point
+  redemptions are no longer counted as cash (vouchers shown as a separate note on the dashboard).
+- **Settings**: removed the unused "Default upload" field (each package sets its own upload).
+
+- **Per-ISP capacity** (migration `0026_capacity_mode.sql`): total speed, per-user cap and seats are now taken from the
+  ISP paths that are connected (Network → ISP path), not one fixed default. Total and seats add up across paths that are
+  up; per-user is the best line's cap; offline paths are skipped. Settings → ISP capacity shows what is in effect, lists
+  each path, warns when the fastest package exceeds the per-user cap, and keeps the old fixed values as a fallback
+  (or forced, with "Use each ISP's own limits" off). New ISP paths start from sensible presets (Airtel/Safaricom 5G
+  30 Mbps, LTE 15, Starlink/fibre 100) with quick 15/30/50/100/200 Mbps buttons. RADIUS uses the same limits.
 
 - **Network map** (`/admin/network-map`, migration `0025_network_map.sql`): site/town selector, summary cards
   (routers, access points, active users, traffic) that follow the selected site, topology grouped by town

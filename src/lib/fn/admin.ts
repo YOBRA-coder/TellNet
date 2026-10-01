@@ -35,6 +35,7 @@ import {
 import { resetCustomerPin } from "@/lib/services/customer-auth.server";
 import { getRadiusConfig } from "@/lib/services/radius.server";
 import { refreshNetworkLive } from "@/lib/services/network-live.server";
+import { getEffectiveCapacity } from "@/lib/services/capacity.server";
 import {
   getRadiusListenerStatus,
   syncRadiusListener,
@@ -52,7 +53,12 @@ import {
   mapSite,
   type SqlRow,
 } from "@/lib/services/rows.server";
-import { listVouchers, generateVouchers } from "@/lib/services/vouchers.server";
+import {
+  deleteVouchers,
+  generateVouchers,
+  listVouchersPage,
+  vouchersForPrint,
+} from "@/lib/services/vouchers.server";
 import { processActivationRetries } from "../services/callback.server";
 
 /** "ALL"/undefined = every site. Payments/customers with no site count as the main site. */
@@ -81,12 +87,16 @@ export const getDashboard = createServerFn({ method: "POST" })
           tx: number;
           success: number;
           failed: number;
+          vouchers: number;
+          voucher_value: number;
         }>`
           select
-            coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
+            coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
             count(*)::int as tx,
             count(*) filter (where status = 'SUCCESS')::int as success,
-            count(*) filter (where status in ('FAILED','CANCELLED'))::int as failed
+            count(*) filter (where status in ('FAILED','CANCELLED'))::int as failed,
+            count(*) filter (where status = 'SUCCESS' and mpesa_transaction_id like 'VCH-%')::int as vouchers,
+            coalesce(sum(amount) filter (where status = 'SUCCESS' and mpesa_transaction_id like 'VCH-%'), 0)::int as voucher_value
           from payments
           where created_at >= date_trunc('day', now())
             and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
@@ -142,6 +152,8 @@ export const getDashboard = createServerFn({ method: "POST" })
         todayTx: asNumber(t?.tx),
         todaySuccess: asNumber(t?.success),
         todayFailed: asNumber(t?.failed),
+        todayVouchers: asNumber(t?.vouchers),
+        todayVoucherValue: asNumber(t?.voucher_value),
         onlineUsers: asNumber(c?.online),
         activePackages: asNumber(c?.active_pkg),
         expiredPackages: asNumber(c?.expired_pkg),
@@ -738,7 +750,7 @@ export const getReports = createServerFn({ method: "POST" })
       sold: number;
     }>`
       select
-        coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
+        coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
         count(*)::int as tx,
         count(*) filter (where status = 'SUCCESS')::int as success,
         count(*) filter (where status in ('FAILED','CANCELLED'))::int as failed,
@@ -748,21 +760,21 @@ export const getReports = createServerFn({ method: "POST" })
     `;
     const week = await sql<{ revenue: number; tx: number }>`
       select
-        coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
+        coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
         count(*)::int as tx
       from payments where created_at >= date_trunc('week', now())
         and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
     `;
     const month = await sql<{ revenue: number; tx: number }>`
       select
-        coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
+        coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
         count(*)::int as tx
       from payments where created_at >= date_trunc('month', now())
         and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
     `;
     const best = await sql<{ name: string; sold: number; revenue: number }>`
       select pkg.name, count(*)::int as sold,
-             coalesce(sum(p.amount), 0)::int as revenue
+             coalesce(sum(p.amount) filter (where coalesce(p.mpesa_transaction_id, '') not like 'PTS-%' and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue
       from payments p join packages pkg on pkg.id = p.package_id
       where p.status = 'SUCCESS' and p.created_at >= date_trunc('week', now())
         and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
@@ -771,7 +783,7 @@ export const getReports = createServerFn({ method: "POST" })
     `;
     const monthPerf = await sql<{ name: string; sold: number; revenue: number }>`
       select pkg.name, count(*)::int as sold,
-             coalesce(sum(p.amount), 0)::int as revenue
+             coalesce(sum(p.amount) filter (where coalesce(p.mpesa_transaction_id, '') not like 'PTS-%' and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue
       from payments p join packages pkg on pkg.id = p.package_id
       where p.status = 'SUCCESS' and p.created_at >= date_trunc('month', now())
         and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
@@ -780,7 +792,7 @@ export const getReports = createServerFn({ method: "POST" })
     `;
     const daily = await sql<{ day: string; revenue: number; tx: number }>`
       select to_char(date_trunc('day', created_at), 'YYYY-MM-DD') as day,
-             coalesce(sum(case when status = 'SUCCESS' then amount else 0 end), 0)::int as revenue,
+             coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
              count(*) filter (where status = 'SUCCESS')::int as tx
       from payments
       where created_at >= now() - interval '14 days'
@@ -875,6 +887,8 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
         mpesaEnv: z.enum(["sandbox", "production"]),
         mpesaCallbackUrl: z.string().optional(),
         defaultUploadKbps: z.number().int().min(64),
+        capacityMode: z.enum(["PER_ISP", "GLOBAL"]).optional(),
+        requireAccountMultiDevice: z.boolean().optional(),
         ispTotalKbps: z.number().int().min(1024).max(1_000_000),
         perUserMaxKbps: z.number().int().min(256).max(100_000),
         maxUsers: z.number().int().min(1).max(500),
@@ -915,6 +929,8 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
         mpesa_env = ${data.mpesaEnv},
         mpesa_callback_url = ${data.mpesaCallbackUrl || null},
         default_upload_kbps = ${data.defaultUploadKbps},
+        capacity_mode = ${data.capacityMode ?? "PER_ISP"},
+        require_account_multi_device = ${data.requireAccountMultiDevice ?? true},
         isp_total_kbps = ${data.ispTotalKbps},
         per_user_max_kbps = ${data.perUserMaxKbps},
         max_users = ${data.maxUsers},
@@ -973,6 +989,18 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
       error: err instanceof Error ? err.message : "Could not update the RADIUS listener.",
     }));
     return { ok: true as const, radius };
+  });
+
+/** What limits are actually being enforced right now, and from where. */
+export const getCapacityStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const sql = await getSql();
+    const cap = await getEffectiveCapacity();
+    const fastest = (
+      await sql<{ kbps: number | null }>`select max(download_kbps)::int as kbps from packages where status = 'ACTIVE'`
+    )[0];
+    return { ...cap, fastestPackageKbps: fastest?.kbps ? Number(fastest.kbps) : null };
   });
 
 // --- RADIUS (multi-AP) ---------------------------------------------------
@@ -1908,19 +1936,58 @@ export const deleteAccessPoint = createServerFn({ method: "POST" })
   });
 
 // --- Vouchers ---
-export const listVouchersAdmin = createServerFn({ method: "GET" })
+export const listVouchersAdmin = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async () => {
-    const rows = await listVouchers({ limit: 200 });
-    return rows.map((r) => ({
-      id: String(r.id),
-      code: String(r.code),
-      packageName: String(r.package_name ?? ""),
-      status: String(r.status),
-      batchLabel: r.batch_label ? String(r.batch_label) : null,
-      redeemedAt: r.redeemed_at ? String(r.redeemed_at) : null,
-      createdAt: String(r.created_at),
-    }));
+  .validator((data: unknown) =>
+    z
+      .object({
+        status: z.enum(["AVAILABLE", "REDEEMED", "EXPIRED"]).optional(),
+        batch: z.string().max(60).optional(),
+        search: z.string().max(20).optional(),
+        page: z.number().int().min(1).optional(),
+      })
+      .optional()
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    const res = await listVouchersPage({ ...data, pageSize: 50 });
+    const cfg = (
+      await sql<{ d: number | null; name: string | null; currency: string | null }>`
+        select voucher_auto_clean_days as d, hotspot_name as name, currency from settings where id = 'default' limit 1
+      `
+    )[0];
+    return {
+      rows: res.rows.map((r) => ({
+        id: String(r.id),
+        code: String(r.code),
+        packageName: String(r.package_name ?? ""),
+        status: String(r.eff_status) as "AVAILABLE" | "REDEEMED" | "EXPIRED",
+        batchLabel: r.batch_label ? String(r.batch_label) : null,
+        redeemedAt: r.redeemed_at ? String(r.redeemed_at) : null,
+        expiresAt: r.expires_at ? String(r.expires_at) : null,
+        createdAt: String(r.created_at),
+      })),
+      total: res.total,
+      page: res.page,
+      pageSize: res.pageSize,
+      counts: {
+        AVAILABLE: res.counts.AVAILABLE ?? 0,
+        REDEEMED: res.counts.REDEEMED ?? 0,
+        EXPIRED: res.counts.EXPIRED ?? 0,
+      },
+      batches: res.batches.map((b) => ({
+        label: String(b.label),
+        total: Number(b.total),
+        available: Number(b.available),
+        redeemed: Number(b.redeemed),
+        expired: Number(b.expired),
+        lastCreated: String(b.last_created),
+      })),
+      autoCleanDays: Number(cfg?.d ?? 0),
+      hotspotName: cfg?.name ?? "Wi-Fi",
+      currency: cfg?.currency ?? "KES",
+    };
   });
 
 export const generateVouchersAdmin = createServerFn({ method: "POST" })
@@ -1932,6 +1999,8 @@ export const generateVouchersAdmin = createServerFn({ method: "POST" })
         count: z.number().int().min(1).max(200),
         batchLabel: z.string().max(60).optional(),
         siteId: z.string().optional(),
+        /** vouchers stop working this many days after creation (omit = never) */
+        validDays: z.number().int().min(1).max(3650).optional(),
       })
       .parse(data),
   )
@@ -1939,10 +2008,70 @@ export const generateVouchersAdmin = createServerFn({ method: "POST" })
     const codes = await generateVouchers({
       packageId: data.packageId,
       count: data.count,
-      batchLabel: data.batchLabel,
+      batchLabel: data.batchLabel?.trim() || undefined,
       siteId: data.siteId,
+      expiresAt: data.validDays
+        ? new Date(Date.now() + data.validDays * 86_400_000).toISOString()
+        : undefined,
     });
     return { ok: true as const, codes };
+  });
+
+export const deleteVouchersAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z
+      .object({
+        mode: z.enum(["redeemed", "expired", "batch", "ids"]),
+        batch: z.string().max(60).optional(),
+        ids: z.array(z.string()).max(500).optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const deleted = await deleteVouchers(data);
+    return { ok: true as const, deleted };
+  });
+
+export const setVoucherAutoClean = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z.object({ days: z.number().int().min(0).max(365) }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    await sql`update settings set voucher_auto_clean_days = ${data.days}, updated_at = now() where id = 'default'`;
+    const { autoCleanVouchers } = await import("@/lib/services/vouchers.server");
+    const removed = await autoCleanVouchers();
+    return { ok: true as const, removed };
+  });
+
+export const getVouchersForPrint = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z.object({ batch: z.string().max(60).optional(), ids: z.array(z.string()).max(500).optional() }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    const rows = await vouchersForPrint(data);
+    const cfg = (
+      await sql<{ name: string | null; currency: string | null }>`
+        select hotspot_name as name, currency from settings where id = 'default' limit 1
+      `
+    )[0];
+    return {
+      hotspotName: cfg?.name ?? "Wi-Fi",
+      currency: cfg?.currency ?? "KES",
+      vouchers: rows.map((r) => ({
+        code: String(r.code),
+        packageName: String(r.package_name),
+        price: Number(r.price),
+        durationMinutes: Number(r.duration_minutes),
+        maxDevices: Number(r.max_devices),
+        expiresAt: r.expires_at ? String(r.expires_at) : null,
+        batchLabel: r.batch_label ? String(r.batch_label) : null,
+      })),
+    };
   });
 
 export const listActivationQueue = createServerFn({ method: "GET" })
