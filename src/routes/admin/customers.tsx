@@ -137,10 +137,13 @@ function CustomersPage() {
           className="pl-9"
         />
       </div>
-      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+      
+      {/* FIXED CONTAINER: added w-full overflow-x-auto to cleanly slide without squeezing text cells */}
+      <div className="w-full overflow-x-auto rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
-            <TableRow>
+            {/* FIXED ROW: Added whitespace-nowrap to header tags to prevent squishing text stack */}
+            <TableRow className="whitespace-nowrap">
               <TableHead>Phone</TableHead>
               <TableHead>Package</TableHead>
               <TableHead>Packages bought</TableHead>
@@ -162,7 +165,8 @@ function CustomersPage() {
               </TableRow>
             ) : null}
             {filtered.map((row) => (
-              <TableRow key={row.customer.id}>
+              /* FIXED ROW: Added whitespace-nowrap to keep data layout linear and horizontally spacious */
+              <TableRow key={row.customer.id} className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
                   {formatPhoneDisplay(row.customer.phone)}
                 </TableCell>
@@ -171,7 +175,7 @@ function CustomersPage() {
                   {row.pack?.lastResumedAt ? (
                     <span
                       title={`Auto-resumed ${formatStamp(row.pack.lastResumedAt)}`}
-                      className="ml-1.5 rounded-full bg-ok/15 px-1.5 py-0.5 text-[10px] font-medium text-ok"
+                      className="ml-1.5 inline-block rounded-full bg-ok/15 px-1.5 py-0.5 text-[10px] font-medium text-ok"
                     >
                       Resumed
                     </span>
@@ -180,7 +184,7 @@ function CustomersPage() {
                 <TableCell className="tabular-nums">
                   {row.packageCount}
                   {row.queuedCount > 0 ? (
-                    <span className="ml-1.5 rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn">
+                    <span className="ml-1.5 inline-block rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn">
                       {row.queuedCount} queued
                     </span>
                   ) : null}

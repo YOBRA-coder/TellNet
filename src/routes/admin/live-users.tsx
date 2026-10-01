@@ -45,9 +45,9 @@ function LiveUsersPage() {
           the paid package.
         </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-border bg-surface">
-        <Table>
-          <TableHeader>
+      <div className="w-full overflow-x-auto rounded-xl border border-border bg-surface">
+  <Table>
+          <TableHeader className="whitespace-nowrap">
             <TableRow>
               <TableHead>Phone</TableHead>
               <TableHead>IP</TableHead>
@@ -70,7 +70,7 @@ function LiveUsersPage() {
               </TableRow>
             )}
             {(q.data ?? []).map((u) => (
-              <TableRow key={u.sessionId}>
+              <TableRow key={u.sessionId} className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
                   {formatPhoneDisplay(u.phone)}
                 </TableCell>
