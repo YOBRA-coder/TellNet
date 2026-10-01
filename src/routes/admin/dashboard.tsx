@@ -77,56 +77,65 @@ function DashboardPage() {
 
   if (q.isLoading && !q.data) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-xl" />
+          <Skeleton
+            key={i}
+            className="h-32 rounded-2xl border border-border/60 bg-card/70"
+          />
         ))}
       </div>
     );
   }
   if (q.isLoading && !q.data) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <Skeleton key={i} className="h-28 rounded-xl" />
-      ))}
-    </div>
-  );
-}
+    return (
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton
+            key={i}
+            className="h-32 rounded-2xl border border-border/60 bg-card/70"
+          />
+        ))}
+      </div>
+    );
+  }
 
-if (q.isError) {
-  return (
-    <Card className="p-6">
-      <h1 className="font-display text-xl font-semibold">
-        Dashboard failed to load
-      </h1>
+  if (q.isError) {
+    return (
+      <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm sm:p-6">
+        <div className="flex size-11 items-center justify-center rounded-xl bg-danger/10 text-danger">
+          <AlertTriangle className="size-5" />
+        </div>
+        <h1 className="mt-4 font-display text-xl font-semibold tracking-tight">
+          Dashboard failed to load
+        </h1>
 
-      <p className="mt-2 text-sm text-muted">
-        {q.error instanceof Error
-          ? q.error.message
-          : "The dashboard request failed."}
-      </p>
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+          {q.error instanceof Error
+            ? q.error.message
+            : "The dashboard request failed."}
+        </p>
 
-      <button
-        type="button"
-        className="mt-4 rounded-md border border-border px-4 py-2 text-sm"
-        onClick={() => q.refetch()}
-      >
-        Retry
-      </button>
-    </Card>
-  );
-}
+        <button
+          type="button"
+          className="mt-5 min-h-10 rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-muted/40 active:scale-[0.98]"
+          onClick={() => q.refetch()}
+        >
+          Retry
+        </button>
+      </Card>
+    );
+  }
 
-if (!q.data) {
-  return (
-    <Card className="p-6">
-      <p className="text-sm text-muted">
-        No dashboard data was returned.
-      </p>
-    </Card>
-  );
-}
+  if (!q.data) {
+    return (
+      <Card className="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm sm:p-6">
+        <p className="text-sm text-muted">
+          No dashboard data was returned.
+        </p>
+      </Card>
+    );
+  }
 
   const { cards, isps, events, recent, settings, router } = q.data;
   const internet =
@@ -135,23 +144,36 @@ if (!q.data) {
       : "Degraded";
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-subtle">
-            {settings.hotspotName}
-          </p>
-          <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">
-            Dashboard
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <SiteSwitcher />
-          <Badge tone={internet === "Online" ? "ok" : "warn"}>{internet}</Badge>
+    <div className="mx-auto w-full max-w-[1600px] space-y-4 pb-6 sm:space-y-5 lg:space-y-6">
+      <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5 lg:p-6">
+        <div className="pointer-events-none absolute -right-16 -top-20 size-48 rounded-full bg-accent/10 blur-3xl" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.2em] text-subtle sm:text-xs">
+              {settings.hotspotName}
+            </p>
+            <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+              Dashboard
+            </h1>
+            <p className="mt-1 text-xs text-muted sm:text-sm">
+              Network, customers and payment activity at a glance.
+            </p>
+          </div>
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="min-w-0 flex-1 sm:flex-none">
+              <SiteSwitcher />
+            </div>
+            <div className="shrink-0 rounded-full">
+              <Badge tone={internet === "Online" ? "ok" : "warn"}>
+              <span className="mr-1.5 inline-block size-1.5 rounded-full bg-current" />
+                {internet}
+              </Badge>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Today's revenue"
           value={formatKes(cards.todayRevenue, settings.currency)}
@@ -197,33 +219,44 @@ if (!q.data) {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-display text-lg font-semibold">Recent payments</h2>
-            <Link to="/admin/payments" className="text-sm text-muted hover:text-fg">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] lg:items-start">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5 lg:p-6">
+          <div className="mb-4 flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-subtle">
+                Transactions
+              </p>
+              <h2 className="mt-0.5 font-display text-lg font-semibold sm:text-xl">
+                Recent payments
+              </h2>
+            </div>
+            <Link
+              to="/admin/payments"
+              className="inline-flex min-h-9 items-center text-sm font-medium text-accent transition hover:text-fg"
+            >
               All transactions
+              <span className="ml-1">→</span>
             </Link>
           </div>
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-border/70">
             {recent.map((p) => (
               <li
                 key={p.id}
-                className="flex items-center justify-between gap-3 py-3 text-sm"
+                className="flex min-w-0 flex-col gap-2 py-3.5 text-sm min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between sm:py-4"
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium">
                     {formatPhoneDisplay(p.phone)} · {p.packageName}
                   </p>
-                  <p className="mt-0.5 font-mono text-xs text-subtle">
+                  <p className="mt-1 truncate font-mono text-[10px] text-subtle sm:text-xs">
                     {p.mpesaTransactionId ?? "pending"} · {formatStamp(p.createdAt)}
                   </p>
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="tabular-nums">
+                <div className="flex shrink-0 items-center justify-between gap-3 min-[420px]:flex-col min-[420px]:items-end">
+                  <span className="font-medium tabular-nums">
                     {formatKes(p.amount, settings.currency)}
                   </span>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap justify-end gap-1">
                     <PaymentBadge status={p.status} />
                     <ActivationBadge status={p.activationStatus} />
                   </div>
@@ -233,8 +266,8 @@ if (!q.data) {
           </ul>
         </Card>
 
-        <div className="space-y-4">
-          <Card className="p-5">
+        <div className="min-w-0 space-y-4">
+          <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
             <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold">
               <RouterIcon className="size-4 text-accent" />
               MikroTik routers
@@ -244,9 +277,12 @@ if (!q.data) {
                 No MikroTik registered yet — add one on Network.
               </p>
             ) : (
-              <ul className="space-y-3">
+              <ul className="space-y-2">
                 {q.data.mikrotiks.map((mt) => (
-                  <li key={mt.id} className="flex items-center justify-between text-sm">
+                  <li
+                    key={mt.id}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2.5 text-sm"
+                  >
                     <span className="flex items-center gap-2 min-w-0">
                       <span
                         className={cn(
@@ -270,14 +306,14 @@ if (!q.data) {
             )}
             <Link
               to="/admin/network"
-              className="mt-4 inline-block text-sm text-accent hover:text-fg"
+              className="mt-4 inline-flex min-h-9 items-center text-sm font-medium text-accent transition hover:text-fg"
             >
-              Manage routers
+              Manage routers <span className="ml-1">→</span>
             </Link>
           </Card>
 
-          <Card className="p-5">
-            <div className="mb-3 flex items-center justify-between gap-2">
+          <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
+            <div className="mb-4 flex flex-col gap-3 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
               <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
                 <Database className="size-4 text-accent" />
                 Data usage
@@ -285,7 +321,7 @@ if (!q.data) {
               <select
                 value={preset}
                 onChange={(e) => setPreset(e.target.value as UsagePreset)}
-                className="rounded-md border border-border bg-transparent px-2 py-1 text-xs"
+                className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs font-medium outline-none transition focus:ring-2 focus:ring-accent/20 min-[420px]:w-auto"
               >
                 {USAGE_PRESETS.map((p) => (
                   <option key={p.key} value={p.key}>
@@ -295,30 +331,31 @@ if (!q.data) {
               </select>
             </div>
             {preset === "custom" ? (
-              <div className="mb-3 flex items-center gap-2 text-xs">
+              <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs">
                 <Input
                   type="date"
                   value={customFrom}
                   max={customTo}
                   onChange={(e) => setCustomFrom(e.target.value)}
-                  className="h-8"
+                  className="h-9 min-w-0 rounded-xl"
                 />
-                <span className="text-subtle">to</span>
+                <span className="text-center text-subtle">to</span>
                 <Input
                   type="date"
                   value={customTo}
                   min={customFrom}
                   max={today}
                   onChange={(e) => setCustomTo(e.target.value)}
-                  className="h-8"
+                  className="h-9 min-w-0 rounded-xl"
                 />
               </div>
             ) : null}
             {usageQ.isLoading ? (
               <Skeleton className="h-14 rounded-lg" />
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+
                   <p className="text-xs uppercase tracking-wide text-subtle">Total</p>
                   <p className="font-display text-xl font-semibold tabular-nums">
                     {formatBytes(
@@ -326,7 +363,7 @@ if (!q.data) {
                     )}
                   </p>
                 </div>
-                <div>
+                <div className="rounded-xl border border-border/60 bg-background/40 p-3">
                   <p className="text-xs uppercase tracking-wide text-subtle">
                     Down / Up
                   </p>
@@ -339,14 +376,17 @@ if (!q.data) {
             )}
           </Card>
 
-          <Card className="p-5">
+          <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
             <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold">
               <Radio className="size-4 text-accent" />
               ISP status
             </h2>
-            <ul className="space-y-3">
+            <ul className="space-y-2">
               {isps.map((isp) => (
-                <li key={isp.id} className="flex items-center justify-between text-sm">
+                <li
+                  key={isp.id}
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2.5 text-sm"
+                >
                   <span>{isp.name}</span>
                   <Badge
                     tone={
@@ -367,12 +407,15 @@ if (!q.data) {
               stay valid across every path.
             </p>
           </Card>
-          <Card className="p-5">
-            <h2 className="mb-3 font-display text-lg font-semibold">Network log</h2>
-            <ul className="space-y-3">
+          <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
+            <h2 className="mb-4 font-display text-lg font-semibold">Network log</h2>
+            <ul className="space-y-2.5">
               {events.map((e) => (
-                <li key={e.id}>
-                  <p className="text-xs uppercase tracking-wide text-subtle">
+                <li
+                  key={e.id}
+                  className="rounded-xl border border-border/60 bg-background/40 p-3"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-subtle sm:text-xs">
                     {e.eventType.replaceAll("_", " ")}
                   </p>
                   <p className="mt-1 text-sm leading-relaxed text-muted">
@@ -402,15 +445,39 @@ function Stat({
   note?: string;
 }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between">
-        <p className="text-xs uppercase tracking-wide text-subtle">{label}</p>
-        <Icon className={cn("size-4", warn ? "text-warn" : "text-muted")} />
+    <Card
+      className={cn(
+        "group relative min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-5",
+        warn && "border-warn/30",
+      )}
+    >
+      <div
+        className={cn(
+          "pointer-events-none absolute -right-7 -top-7 size-20 rounded-full blur-2xl transition group-hover:scale-125",
+          warn ? "bg-warn/10" : "bg-accent/10",
+        )}
+      />
+      <div className="relative flex items-start justify-between gap-3">
+        <p className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-subtle sm:text-xs">
+          {label}
+        </p>
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/50",
+            warn ? "text-warn" : "text-accent",
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
       </div>
-      <p className="mt-3 font-display text-2xl font-semibold tabular-nums">
+      <p className="relative mt-4 truncate font-display text-2xl font-semibold tabular-nums tracking-tight sm:text-[1.7rem]">
         {value}
       </p>
-      {note ? <p className="mt-1 text-[11px] leading-snug text-subtle">{note}</p> : null}
+      {note ? (
+        <p className="relative mt-1.5 line-clamp-3 text-[10px] leading-relaxed text-subtle sm:text-[11px]">
+          {note}
+        </p>
+      ) : null}
     </Card>
   );
 }
