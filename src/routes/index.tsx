@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, getRouteApi, Link } from "@tanstack/react-router";
 import { ArrowRight, ShieldCheck, Smartphone, Wifi } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
 import { TelNetMark } from "@/components/brand";
 import { PackageCard } from "@/components/portal/package-card";
 import { Button } from "@/components/ui/button";
 import { APP_NAME, HOTSPOT_FALLBACK } from "@/lib/brand-copy";
-import { getPublicHome } from "@/lib/fn/public";
+import { getPublicHome, getPublicSettings } from "@/lib/fn/public";
 import { Package } from "@/lib/types";
+import { PortalSupportSection } from "@/components/portal/portal-shell";
+
+
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -21,6 +24,13 @@ function Home() {
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
+  const q = useQuery({
+    queryKey: ["portal"],
+    queryFn: () => getPublicSettings(),
+  });
+
+
+  const settings = q.data ?? q.data;
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
@@ -28,7 +38,7 @@ function Home() {
       // 1. Always show the header if we are near the very top of the page
       if (currentScrollY < 50) {
         setIsVisible(true);
-      } 
+      }
       // 2. Hide if scrolling down, Show if scrolling up
       else if (currentScrollY > lastScrollY) {
         setIsVisible(false);
@@ -46,10 +56,9 @@ function Home() {
   return (
     <div className="atmosphere min-h-dvh">
       {/* Dynamic Smart Header */}
-      <header 
-        className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${
-          isVisible ? "translate-y-0" : "-translate-y-full"
-        }`}
+      <header
+        className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${isVisible ? "translate-y-0" : "-translate-y-full"
+          }`}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
           <Link to="/" className="flex items-center gap-2">
@@ -57,9 +66,9 @@ function Home() {
             <span className="font-display text-lg font-semibold">{APP_NAME}</span>
           </Link>
           <nav className="flex items-center gap-4 text-sm">
-            <a href="#packages" className="text-muted hover:text-fg">
+            <Link to="/portal" className="text-muted hover:text-fg">
               Packages
-            </a>
+            </Link>
             <Link to="/portal/recover" className="text-muted hover:text-fg">
               Already paid?
             </Link>
@@ -81,14 +90,12 @@ function Home() {
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           <Button asChild size="xl">
-            <a href="#packages">
-              View packages
+            <Link to="/portal">
+              Open portal
               <ArrowRight className="size-4" />
-            </a>
+            </Link>
           </Button>
-          <Button asChild size="xl" variant="secondary">
-            <Link to="/portal">Open portal</Link>
-          </Button>
+
         </div>
         {data?.internetUp && (
           <p className="mt-6 max-w-md rounded-lg border border-warn/20 bg-warn/10 px-3 py-2 text-sm text-warn">
@@ -129,7 +136,9 @@ function Home() {
             Already paid? Recover my package
           </Link>
         </p>
+
       </section>
+
 
       <section className="mx-auto grid max-w-5xl gap-4 px-5 pb-20 sm:grid-cols-3">
         <Feature
@@ -148,7 +157,18 @@ function Home() {
           body="Switch Wi-Fi off and return later. If time remains, tap Connect. No second charge."
         />
       </section>
-
+      <div className="mx-auto grid max-w-5xl gap-4 px-5 pb-20 sm:grid-cols-3">
+        {settings?.supportPhone || settings?.supportWhatsapp ? (
+          /* FIXED: Added col-span-full to stretch across all grid columns, allowing mx-auto to center it perfectly */
+          <div className="col-span-full mt-6 text-center text-sm text-muted">
+            <PortalSupportSection
+              supportPhone={settings.supportPhone}
+              supportWhatsapp={settings.supportWhatsapp}
+              supportMessage={settings.supportMessage}
+            />
+          </div>
+        ) : null}
+      </div>
       <footer className="mx-auto flex max-w-5xl items-center justify-between px-5 pb-10 text-xs text-subtle">
         <span>
           {APP_NAME} · Independent of the ISP path carrying your traffic
