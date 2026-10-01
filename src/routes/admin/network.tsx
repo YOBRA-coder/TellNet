@@ -964,7 +964,7 @@ function NetworkPage() {
       </Dialog>
 
       <Dialog open={ispOpen} onOpenChange={setIspOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{ispForm.id ? "Edit ISP path" : "Add ISP path"}</DialogTitle>
             <DialogDescription>
