@@ -287,6 +287,10 @@ export async function activateFromPayment(
               .filter(Boolean)
           : undefined,
     });
+    // Bought (or re-pushed) while the router is closed for the night: the
+    // login exists but stays switched off until the router opens.
+    const { isPrimaryClosed } = await import("./hours.server");
+    if (await isPrimaryClosed()) await disableUser(username).catch(() => {});
   } catch (err) {
     const failed = err instanceof MikroTikError;
     if (!packRow) {

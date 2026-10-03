@@ -226,15 +226,22 @@ export async function applyReferralMinutesForPayment(paymentId: string): Promise
   if (!settingsRow?.referral_enabled) return ownExtra;
 
   const pkgPriceRow = (
-    await sql<{ price: number }>`
-      select pkg.price from payments p
+    await sql<{ price: number; tx: string | null }>`
+      select pkg.price, p.mpesa_transaction_id as tx from payments p
       join packages pkg on pkg.id = p.package_id
       where p.id = ${paymentId} limit 1
     `
   )[0];
-  const qualifies =
+  // Only a real M-Pesa payment can trigger referral bonuses. Voucher
+  // (VCH-) and loyalty-point (PTS-) redemptions are not cash, so they must not
+  // pay anyone out; the referral simply stays pending until the referred
+  // customer's first real purchase.
+  const isCash =
     pkgPriceRow != null &&
-    Number(pkgPriceRow.price) > Number(settingsRow.referral_min_package_price);
+    !String(pkgPriceRow.tx ?? "").startsWith("VCH-") &&
+    !String(pkgPriceRow.tx ?? "").startsWith("PTS-");
+  const qualifies =
+    isCash && Number(pkgPriceRow!.price) > Number(settingsRow.referral_min_package_price);
 
   if (!qualifies) return ownExtra;
 
@@ -306,6 +313,11 @@ export async function redeemPointsForPackage(input: {
   const pkg = pkgRows[0];
   if (!pkg || pkg.points_cost == null) {
     return { ok: false, error: "This package isn't redeemable with points." };
+  }
+  {
+    const { getHoursForSite, purchaseBlockedReason } = await import("./hours.server");
+    const closedMsg = purchaseBlockedReason(await getHoursForSite(null), String(pkg.duration_kind ?? ""));
+    if (closedMsg) return { ok: false, error: closedMsg };
   }
   const cost = Number(pkg.points_cost);
 

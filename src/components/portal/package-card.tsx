@@ -18,6 +18,7 @@ export function PackageCard({
   currency = "KES",
   maxDevices = 1,
   locked = false,
+  unavailableLabel,
   style,
 }: {
   pkg: Package;
@@ -26,6 +27,8 @@ export function PackageCard({
   maxDevices?: number;
   /** Guest who must create a free account before buying this package. */
   locked?: boolean;
+  /** Set when the package can't be bought right now (e.g. "Opens 6:00 AM"). */
+  unavailableLabel?: string;
   style?: React.CSSProperties;
 }) {
   return (
@@ -33,7 +36,7 @@ export function PackageCard({
       style={style}
       className={`card-pop flex items-center gap-3 rounded-xl border bg-surface px-3.5 py-3 transition-colors hover:border-accent/50 ${
         pkg.badge ? "border-accent/40" : "border-border"
-      }`}
+      } ${unavailableLabel ? "opacity-60" : ""}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -74,6 +77,11 @@ export function PackageCard({
         <p className="font-display text-lg font-semibold tabular-nums leading-none">
           {formatKes(pkg.price, currency)}
         </p>
+        {unavailableLabel ? (
+          <Button size="sm" variant="outline" disabled className="mt-2 h-8 min-w-20">
+            {unavailableLabel}
+          </Button>
+        ) : (
         <Button asChild size="sm" className="mt-2 h-8 min-w-20">
           {locked ? (
             <Link
@@ -88,6 +96,7 @@ export function PackageCard({
             </Link>
           )}
         </Button>
+        )}
       </div>
     </article>
   );

@@ -25,15 +25,6 @@ export const getPublicHome = createServerFn({ method: "GET" }).handler(async () 
   };
 });
 
-export const getPublicSettings = createServerFn({ method: "GET" }).handler(async () => {
-  const settings = await getSettings();
-  return {
-    supportPhone: settings.supportPhone,
-    supportWhatsapp: settings.supportWhatsapp,
-    supportMessage: settings.supportMessage,
-  };
-});
-
 /** Shared operator password login — no email / OAuth. */
 export const loginOperator = createServerFn({ method: "POST" })
   .validator((data: unknown) =>

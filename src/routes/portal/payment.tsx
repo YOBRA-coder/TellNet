@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { PortalShell } from "@/components/portal/portal-shell";
+import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -174,16 +174,16 @@ function PaymentPage() {
       </form>
       <Link
         to="/portal/recover"
-        className="mt-2 text-center text-sm text-muted hover:text-fg"
+        className="mt-5 text-center text-sm text-muted hover:text-fg"
       >
         Already paid?
       </Link>
- <Link
-        to="/portal/packages"
-        className="mt-2 text-center text-sm text-muted hover:text-fg"
-      >
-        Select another Package
-      </Link>
+
+      <PortalSupportSection
+              supportPhone={settings.supportPhone}
+              supportWhatsapp={settings.supportWhatsapp}
+              supportMessage={settings.supportMessage}
+            />
     </PortalShell>
   );
 }

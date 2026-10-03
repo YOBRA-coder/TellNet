@@ -4,9 +4,11 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
 import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
-import { dismissNotices, getRewards, redeemPoints, signOut } from "@/lib/fn/portal";
+import { changePin, dismissNotices, getRewards, redeemPoints, signOut } from "@/lib/fn/portal";
 import { formatStamp } from "@/lib/format";
 import { formatPhoneDisplay } from "@/lib/phone";
+import { Input } from "@/components/ui/input";
+import { useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/portal/rewards")({ component: RewardsPage });
@@ -59,6 +61,21 @@ function RewardsPage() {
     },
     onSuccess: (r) => r === "copied" && toast.success("Referral link copied."),
     onError: () => toast.error("Couldn't share — copy the code manually."),
+  });
+
+  const [pinOpen, setPinOpen] = useState(false);
+  const [curPin, setCurPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const change = useMutation({
+    mutationFn: () => changePin({ data: { token: device!.token, current: curPin, next: newPin } }),
+    onSuccess: (res) => {
+      if (!res.ok) return void toast.error(res.error);
+      toast.success("PIN changed. Other devices were signed out.");
+      setPinOpen(false);
+      setCurPin("");
+      setNewPin("");
+    },
+    onError: () => toast.error("Could not change your PIN."),
   });
 
   const out = useMutation({
@@ -190,12 +207,36 @@ function RewardsPage() {
             <p className="text-sm text-muted">Rewards aren't running right now. Check back later.</p>
           ) : null}
 
-         <div className="flex justify-center items-center">
-  <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending}>
-   {out.isPending ? "Signing out..." : "Sign out"}
-  </Button>
-</div>
-
+          {pinOpen ? (
+            <form
+              className="space-y-2 rounded-2xl border border-border bg-surface p-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                change.mutate();
+              }}
+            >
+              <p className="font-medium">Change PIN / password</p>
+              <Input type="password" autoComplete="current-password" placeholder="Current PIN / password" value={curPin} onChange={(e) => setCurPin(e.target.value)} />
+              <Input type="password" autoComplete="new-password" placeholder="New PIN / password (4+ characters)" value={newPin} onChange={(e) => setNewPin(e.target.value)} />
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" disabled={change.isPending || !curPin || newPin.length < 4}>
+                  {change.isPending ? "Saving…" : "Save"}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setPinOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPinOpen(true)}>
+                Change PIN
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending}>
+                Sign out
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <Link to="/portal/account" className="mt-6 text-center text-sm text-muted hover:text-fg">

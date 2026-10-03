@@ -277,6 +277,16 @@ export function mapMikroTik(row: SqlRow): MikroTik {
     hotspotName: String(row.hotspot_name ?? "hotspot1"),
     apiMode: row.api_mode === "api6" ? "api6" : "rest",
     apiPort: row.api_port != null ? Number(row.api_port) : null,
+    pauseOnOutage: asBool(row.pause_on_outage),
+    downSince: row.down_since ? iso(row.down_since) : null,
+    hoursEnabled: asBool(row.hours_enabled),
+    hoursSchedule: parseSchedule(row.hours_json ? String(row.hours_json) : null),
+    hoursAllow: String(row.hours_allow ?? "WEEKLY,MONTHLY").split(",").map((x) => x.trim()).filter(Boolean),
+    hoursPause: row.hours_pause == null ? true : asBool(row.hours_pause),
+    hoursMessage: row.hours_message ? String(row.hours_message) : null,
+    hoursState: row.hours_state === "CLOSED" ? "CLOSED" : "OPEN",
+    memTotal: row.mem_total != null ? Number(row.mem_total) : null,
+    memFree: row.mem_free != null ? Number(row.mem_free) : null,
     ssl: asBool(row.ssl),
     insecureTls: asBool(row.insecure_tls),
     isPrimary: asBool(row.is_primary),
@@ -309,4 +319,22 @@ export function mapMikroTik(row: SqlRow): MikroTik {
     createdAt: iso(row.created_at),
     siteId: row.site_id ? String(row.site_id) : null,
   };
+}
+
+/** Same parser as hours.server (kept here so row mapping has no service imports). */
+function parseSchedule(json: string | null): Record<string, [string, string][]> {
+  const out: Record<string, [string, string][]> = {};
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = json ? JSON.parse(json) : {};
+  } catch {
+    raw = {};
+  }
+  for (let d = 0; d < 7; d++) {
+    const list = Array.isArray(raw[String(d)]) ? (raw[String(d)] as unknown[]) : [];
+    out[String(d)] = list
+      .filter((w): w is string[] => Array.isArray(w) && /^\d{1,2}:\d{2}$/.test(String(w[0])) && /^\d{1,2}:\d{2}$/.test(String(w[1])))
+      .map((w) => [String(w[0]), String(w[1])] as [string, string]);
+  }
+  return out;
 }

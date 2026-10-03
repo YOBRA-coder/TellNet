@@ -87,17 +87,18 @@ function NetworkMapPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [apOpen, setApOpen] = useState(false);
   const [apForm, setApForm] = useState(emptyAp(""));
+  const [days, setDays] = useState(30);
 
-  const key = ["network-map", siteId] as const;
+  const key = ["network-map", siteId, days] as const;
   // Cheap read of the stored snapshot; the refresh below reads the routers.
   const q = useQuery({
     queryKey: key,
-    queryFn: () => getNetworkMap({ data: { siteId } }),
+    queryFn: () => getNetworkMap({ data: { siteId, days } }),
     refetchInterval: 10_000,
     placeholderData: (prev) => prev,
   });
   const refresh = useMutation({
-    mutationFn: () => getNetworkMap({ data: { siteId, refresh: true } }),
+    mutationFn: () => getNetworkMap({ data: { siteId, refresh: true, days } }),
     onSuccess: (d) => qc.setQueryData(key, d),
   });
 
@@ -105,13 +106,13 @@ function NetworkMapPage() {
   useEffect(() => {
     refresh.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteId]);
+  }, [siteId, days]);
   useEffect(() => {
     if (!auto) return;
     const t = setInterval(() => refresh.mutate(), AUTO_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auto, siteId]);
+  }, [auto, siteId, days]);
 
   const d = q.data;
   const allRouters = useMemo(() => (d?.sites ?? []).flatMap((s) => s.routers), [d]);
@@ -291,6 +292,13 @@ function NetworkMapPage() {
                                 <MapPin className="size-3" />
                                 {r.siteName}
                               </p>
+                              {r.hours.enabled ? (
+                                <p className={cn("mt-1 text-xs", r.hours.open ? "text-muted" : "text-warn")}>
+                                  {r.hours.open
+                                    ? `Open${r.hours.closesAtLabel ? ` until ${r.hours.closesAtLabel}` : ""}`
+                                    : `Closed (scheduled)${r.hours.opensAtLabel ? ` · opens ${r.hours.opensAtLabel}` : ""}`}
+                                </p>
+                              ) : null}
                               {r.stateReason && r.state !== "ONLINE" ? (
                                 <p className={cn("mt-1 text-xs", r.state === "OFFLINE" ? "text-danger" : "text-warn")}>
                                   {r.stateReason}
@@ -368,6 +376,8 @@ function NetworkMapPage() {
               <RouterStatus r={selected} />
               <ApTable
                 r={selected}
+                days={days}
+                onDays={setDays}
                 onAdd={() => {
                   setApForm(emptyAp(selected.id));
                   setApOpen(true);
@@ -604,25 +614,51 @@ function RouterStatus({ r }: { r: MapRouter }) {
   );
 }
 
+/** APs earning well under the average of the tracked ones (needs at least 3 with data). */
+function findLowEarners(aps: AccessPointRow[]): Set<string> {
+  const tracked = aps.filter((a) => a.revenue != null);
+  const total = tracked.reduce((n, a) => n + (a.revenue ?? 0), 0);
+  if (tracked.length < 3 || total <= 0) return new Set();
+  const avg = total / tracked.length;
+  return new Set(tracked.filter((a) => (a.revenue ?? 0) < avg * 0.25).map((a) => a.id));
+}
+
 function ApTable({
   r,
+  days,
+  onDays,
   onAdd,
   onEdit,
   onDelete,
 }: {
   r: MapRouter;
+  days: number;
+  onDays: (d: number) => void;
   onAdd: () => void;
   onEdit: (a: AccessPointRow) => void;
   onDelete: (a: AccessPointRow) => void;
 }) {
+  const lowEarners = findLowEarners(r.aps);
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-lg font-semibold">Access points ({r.aps.length})</h2>
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Revenue period"
+            value={days}
+            onChange={(e) => onDays(Number(e.target.value))}
+            className="h-8 rounded-md border border-border bg-raised px-2 text-xs"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
         <Button size="sm" variant="outline" onClick={onAdd}>
           <Plus className="size-4" />
           Add AP
         </Button>
+        </div>
       </div>
       {r.aps.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
@@ -638,6 +674,7 @@ function ApTable({
                 <th className="py-1.5 pr-2 font-medium">Port</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Clients</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Signal</th>
+                <th className="py-1.5 pr-2 text-right font-medium">Revenue</th>
                 <th className="w-16" />
               </tr>
             </thead>
@@ -660,6 +697,17 @@ function ApTable({
                   <td className="py-2 pr-2 text-right tabular-nums text-muted">
                     {a.signalDbm != null ? `${a.signalDbm} dBm` : "—"}
                   </td>
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {a.revenue == null ? (
+                      <span className="text-[11px] text-subtle" title="Set the router port this AP is plugged into to track revenue">set port</span>
+                    ) : (
+                      <>
+                        <p className="font-medium">KES {a.revenue.toLocaleString()}</p>
+                        <p className="text-[11px] text-subtle">{a.paidCustomers ?? 0} paying</p>
+                        {lowEarners.has(a.id) ? <p className="text-[11px] text-warn">Low earner</p> : null}
+                      </>
+                    )}
+                  </td>
                   <td className="py-2 text-right">
                     {a.manual ? (
                       <span className="flex justify-end gap-1">
@@ -681,8 +729,7 @@ function ApTable({
         </div>
       )}
       <p className="mt-3 text-xs text-subtle">
-        Status comes from pinging each AP from the router. Client counts need the AP's router port; signal
-        strength is only available for radios built into the MikroTik itself.
+        Status comes from pinging each AP from the router. Client counts and revenue need the AP's router port (each AP on its own port); signal strength is only available for radios built into the MikroTik itself. Revenue is successful M-Pesa payments, split by where each customer was connected, and builds up as customers use the Wi-Fi.
       </p>
     </Card>
   );

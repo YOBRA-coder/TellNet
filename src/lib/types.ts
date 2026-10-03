@@ -199,6 +199,31 @@ export type MikroTik = {
   siteId: string | null;
   apiMode: RouterOsMode;
   apiPort: number | null;
+  /** Add outage time back to running packages when the router returns. */
+  pauseOnOutage: boolean;
+  downSince: string | null;
+  /** Opening hours: weekly windows per day (0 = Sunday), HH:MM in the business time zone. */
+  hoursEnabled: boolean;
+  hoursSchedule: Record<string, [string, string][]>;
+  hoursAllow: string[];
+  hoursPause: boolean;
+  hoursMessage: string | null;
+  hoursState: "OPEN" | "CLOSED";
+  memTotal: number | null;
+  memFree: number | null;
+};
+
+/** What the portal needs to know about the router's opening hours. */
+export type PortalOperating = {
+  routerId: string;
+  enabled: boolean;
+  open: boolean;
+  nextChangeAt: string | null;
+  opensAtLabel: string | null;
+  closesAtLabel: string | null;
+  allowKinds: ("HOURLY" | "DAILY" | "WEEKLY" | "MONTHLY")[];
+  pause: boolean;
+  message: string | null;
 };
 
 export type RouterProbe = {
@@ -208,6 +233,9 @@ export type RouterProbe = {
   boardName: string | null;
   uptime: string | null;
   cpuLoad: number | null;
+  /** bytes; null when the router didn't report it */
+  memTotal?: number | null;
+  memFree?: number | null;
   hotspotServers: string[];
   interfaces: { name: string; type: string; running: boolean }[];
   error: string | null;
@@ -293,6 +321,9 @@ export type AccessPointRow = {
   clients: number | null;
   signalDbm: number | null;
   checkedAt: string | null;
+  /** M-Pesa revenue attributed to this AP over the chosen period; null = no router port set */
+  revenue: number | null;
+  paidCustomers: number | null;
 };
 
 export type MapRouter = {
@@ -304,6 +335,8 @@ export type MapRouter = {
   siteName: string;
   state: HealthState;
   stateReason: string | null;
+  /** scheduled opening hours */
+  hours: { enabled: boolean; open: boolean; opensAtLabel: string | null; closesAtLabel: string | null };
   boardName: string | null;
   version: string | null;
   identity: string | null;

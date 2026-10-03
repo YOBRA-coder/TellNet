@@ -88,6 +88,16 @@ export async function redeemVoucher(input: {
     throw new Error("Package for this voucher is unavailable.");
   }
 
+  {
+    const { getHoursForSite, purchaseBlockedReason } = await import("./hours.server");
+    const closedMsg = purchaseBlockedReason(
+      await getHoursForSite(v.site_id ? String(v.site_id) : null),
+      String(pkg.duration_kind ?? ""),
+      true,
+    );
+    if (closedMsg) throw new Error(closedMsg);
+  }
+
   const gate = (
     await sql<{ require_account_multi_device: boolean | null }>`
       select require_account_multi_device from settings where id = 'default' limit 1

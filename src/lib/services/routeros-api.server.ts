@@ -275,6 +275,8 @@ export async function apiProbe(creds: ApiCreds) {
     boardName: resource?.attrs["board-name"] || "",
     uptime: resource?.attrs.uptime || "",
     cpuLoad: resource?.attrs["cpu-load"] ? Number(resource.attrs["cpu-load"]) : null,
+    memTotal: resource?.attrs["total-memory"] ? Number(resource.attrs["total-memory"]) : null,
+    memFree: resource?.attrs["free-memory"] ? Number(resource.attrs["free-memory"]) : null,
     hotspotServers: hsNames.length ? hsNames : hotspots,
   };
 }

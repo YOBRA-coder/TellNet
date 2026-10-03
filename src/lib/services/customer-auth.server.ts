@@ -87,14 +87,14 @@ async function announceReferral(referrerId: string, friendPhone: string, friendI
   await addCustomerNotice(
     referrerId,
     "REFERRAL_JOINED",
-    `${maskPhone(friendPhone)} just joined using your referral code. You'll get ${s.referralBonusMinutes} bonus minutes as soon as they buy their first package.`,
+    `${maskPhone(friendPhone)} just joined using your referral code. You'll get ${s.referralBonusMinutes} bonus minutes as soon as they pay for their first package with M-Pesa.`,
     0,
   );
   if (friendId) {
     await addCustomerNotice(
       friendId,
       "REFERRAL_APPLIED",
-      `Referral code applied. ${s.welcomeBonusMinutes + s.referralBonusMinutes} bonus minutes will be added to your first package.`,
+      `Referral code applied. ${s.welcomeBonusMinutes + s.referralBonusMinutes} bonus minutes will be added to your first M-Pesa package.`,
       0,
     );
   }
@@ -286,9 +286,17 @@ export async function signInCustomer(input: {
   return { ok: true, customerId: row.id, phone };
 }
 
-/** Operator-side: issue a fresh random PIN and return it to hand to the customer. */
-export async function resetCustomerPin(customerId: string): Promise<string> {
-  const pin = String(100000 + Math.floor(Math.random() * 900000));
+/**
+ * Operator-side reset. With `chosen` the operator sets exactly the PIN or
+ * password the customer asked for (easier to remember); without it a random
+ * 6-digit PIN is generated. Returns the secret that was set.
+ */
+export async function resetCustomerPin(customerId: string, chosen?: string): Promise<string> {
+  if (chosen != null && chosen !== "") {
+    const bad = validateSecret(chosen);
+    if (bad) throw new Error(bad);
+  }
+  const pin = chosen ? chosen : String(100000 + Math.floor(Math.random() * 900000));
   const { hash, salt } = hashSecret(pin);
   const sql = await getSql();
   const referralCode = await generateReferralCode();
@@ -302,4 +310,34 @@ export async function resetCustomerPin(customerId: string): Promise<string> {
   `;
   await sql`delete from customer_sessions where customer_id = ${customerId}`;
   return pin;
+}
+
+/** Customer-side: change your own PIN/password (must know the current one). */
+export async function changeCustomerSecret(input: {
+  token: string;
+  current: string;
+  next: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const member = await getSessionCustomer(input.token);
+  if (!member?.registered) return { ok: false, error: "Sign in first." };
+  const bad = validateSecret(input.next);
+  if (bad) return { ok: false, error: bad };
+  const sql = await getSql();
+  const row = (
+    await sql<{ pin_hash: string | null; pin_salt: string | null }>`
+      select pin_hash, pin_salt from customers where id = ${member.id} limit 1
+    `
+  )[0];
+  if (!row?.pin_hash || !row.pin_salt || !verifySecret(input.current, row.pin_hash, row.pin_salt)) {
+    return { ok: false, error: "Your current PIN/password is wrong." };
+  }
+  const { hash, salt } = hashSecret(input.next);
+  await sql`
+    update customers set pin_hash = ${hash}, pin_salt = ${salt}, failed_pin_attempts = 0,
+      pin_locked_until = null, updated_at = now()
+    where id = ${member.id}
+  `;
+  // Keep this device signed in; sign every other device out.
+  await sql`delete from customer_sessions where customer_id = ${member.id} and device_token <> ${input.token}`;
+  return { ok: true };
 }

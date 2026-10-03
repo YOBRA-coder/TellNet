@@ -36,7 +36,25 @@ async function sweepExpired(): Promise<number> {
     select cp.id, cp.customer_id, cp.payment_id, cp.mikrotik_username, c.phone
     from customer_packages cp
     join customers c on c.id = cp.customer_id
+    join packages pkg on pkg.id = cp.package_id
+    join payments pay on pay.id = cp.payment_id
     where cp.status = 'ACTIVE' and cp.expiry_time <= now()
+      -- Time is paused while a router with "pause time during outages" is down
+      -- (up to 72h): the package is credited when the router answers again.
+      -- Only Daily / Weekly / Monthly and voucher packages are covered;
+      -- hourly packages keep running through a blackout.
+      and not (
+        (coalesce(pkg.duration_kind, '') in ('DAILY', 'WEEKLY', 'MONTHLY')
+          or coalesce(pay.mpesa_transaction_id, '') like 'VCH-%')
+        and exists (
+          select 1 from mikrotiks m
+          where ((m.pause_on_outage and m.down_since is not null
+                  and m.down_since > now() - interval '72 hours')
+              or (m.hours_enabled and m.hours_pause and m.hours_state = 'CLOSED'
+                  and m.closed_since is not null and m.closed_since > now() - interval '72 hours'))
+            and (m.is_primary or coalesce(m.site_id, 'site_default') = coalesce(c.site_id, 'site_default'))
+        )
+      )
   `;
 
   for (const row of due) {

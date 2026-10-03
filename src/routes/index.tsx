@@ -145,6 +145,7 @@ const packages = q.data?.packages ?? [];
               registered={q.data ? Boolean(q.data.member?.registered) : null}
               requireAccountForMulti={Boolean(settings?.requireAccountMultiDevice)}
               rewardsOn={Boolean(settings?.loyaltyEnabled || settings?.referralEnabled)}
+              operating={q.data?.operating ?? null}
             />
           )}
         </div>

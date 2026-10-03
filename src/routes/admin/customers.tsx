@@ -62,6 +62,9 @@ function CustomersPage() {
   const extendTotal =
     Math.max(0, Math.floor(Number(extHours) || 0)) * 60 +
     Math.max(0, Math.floor(Number(extMins) || 0));
+  // "Reset PIN" dialog: the operator can type the PIN/password the customer wants.
+  const [pinFor, setPinFor] = useState<{ id: string; phone: string } | null>(null);
+  const [pinValue, setPinValue] = useState("");
   const openExtend = (id: string, phone: string) => {
     setExtHours("1");
     setExtMins("0");
@@ -102,6 +105,7 @@ function CustomersPage() {
         | "delete";
       minutes?: number;
       packageId?: string;
+      pin?: string;
     }) => customerAction({ data: input }),
     onSuccess: (res, vars) => {
       if (!res.ok) toast.error(res.error);
@@ -110,6 +114,10 @@ function CustomersPage() {
       } else toast.success("message" in res && res.message ? res.message : "Updated");
       if (res.ok && vars.action === "delete") setOpenId(null);
       if (res.ok && vars.action === "extend") setExtendFor(null);
+      if (res.ok && vars.action === "resetPin") {
+        setPinFor(null);
+        setPinValue("");
+      }
       qc.invalidateQueries({ queryKey: ["customers"] });
       qc.invalidateQueries({ queryKey: ["customer-history"] });
       qc.invalidateQueries({ queryKey: ["live"] });
@@ -137,13 +145,10 @@ function CustomersPage() {
           className="pl-9"
         />
       </div>
-      
-      {/* FIXED CONTAINER: added w-full overflow-x-auto to cleanly slide without squeezing text cells */}
-      <div className="w-full overflow-x-auto rounded-xl border border-border bg-surface">
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
-            {/* FIXED ROW: Added whitespace-nowrap to header tags to prevent squishing text stack */}
-            <TableRow className="whitespace-nowrap">
+            <TableRow  className="whitespace-nowrap">
               <TableHead>Phone</TableHead>
               <TableHead>Package</TableHead>
               <TableHead>Packages bought</TableHead>
@@ -165,8 +170,7 @@ function CustomersPage() {
               </TableRow>
             ) : null}
             {filtered.map((row) => (
-              /* FIXED ROW: Added whitespace-nowrap to keep data layout linear and horizontally spacious */
-              <TableRow key={row.customer.id} className="whitespace-nowrap">
+              <TableRow key={row.customer.id}  className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
                   {formatPhoneDisplay(row.customer.phone)}
                 </TableCell>
@@ -175,7 +179,7 @@ function CustomersPage() {
                   {row.pack?.lastResumedAt ? (
                     <span
                       title={`Auto-resumed ${formatStamp(row.pack.lastResumedAt)}`}
-                      className="ml-1.5 inline-block rounded-full bg-ok/15 px-1.5 py-0.5 text-[10px] font-medium text-ok"
+                      className="ml-1.5 rounded-full bg-ok/15 px-1.5 py-0.5 text-[10px] font-medium text-ok"
                     >
                       Resumed
                     </span>
@@ -184,7 +188,7 @@ function CustomersPage() {
                 <TableCell className="tabular-nums">
                   {row.packageCount}
                   {row.queuedCount > 0 ? (
-                    <span className="ml-1.5 inline-block rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn">
+                    <span className="ml-1.5 rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn">
                       {row.queuedCount} queued
                     </span>
                   ) : null}
@@ -261,13 +265,8 @@ function CustomersPage() {
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => {
-                          if (
-                            window.confirm(
-                              `Reset the PIN for ${formatPhoneDisplay(row.customer.phone)}? A new PIN is shown once for you to give them.`,
-                            )
-                          ) {
-                            act.mutate({ customerId: row.customer.id, action: "resetPin" });
-                          }
+                          setPinValue("");
+                          setPinFor({ id: row.customer.id, phone: row.customer.phone });
                         }}
                       >
                         Reset PIN / password
@@ -488,6 +487,49 @@ function CustomersPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={Boolean(pinFor)} onOpenChange={(o) => !o && setPinFor(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Set PIN / password</DialogTitle>
+            <DialogDescription>
+              For {pinFor ? formatPhoneDisplay(pinFor.phone) : "this customer"}. Type the PIN or password they
+              want so it's easy for them to remember, or let TelNet generate one.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!pinFor) return;
+              const v = pinValue.trim();
+              if (v && v.length < 4) return void toast.error("Use at least 4 characters.");
+              act.mutate({ customerId: pinFor.id, action: "resetPin", pin: v || undefined });
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="pin-new">New PIN or password</Label>
+              <Input
+                id="pin-new"
+                autoFocus
+                autoComplete="off"
+                value={pinValue}
+                onChange={(e) => setPinValue(e.target.value)}
+                placeholder="4+ characters — leave blank to generate"
+                className="h-12 text-base"
+              />
+              <p className="text-xs text-subtle">
+                Shown here so you can read it back to the customer. They can change it themselves after signing in.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" className="flex-1" disabled={act.isPending}>
+                {act.isPending ? "Saving…" : pinValue.trim() ? "Set this PIN" : "Generate random PIN"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(extendFor)} onOpenChange={(o) => !o && setExtendFor(null)}>
         <DialogContent className="max-w-sm">

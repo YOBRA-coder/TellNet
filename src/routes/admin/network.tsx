@@ -36,7 +36,7 @@ import {
   resumeActivePackages,
 } from "@/lib/fn/admin";
 import { CAMOUFLAGE, type CamouflageKind } from "@/lib/camouflage";
-import { formatSpeed, formatStamp } from "@/lib/format";
+import { formatBytes, formatSpeed, formatStamp } from "@/lib/format";
 import { parseRouterHost } from "@/lib/mikrotik-host";
 import type { Isp, IspStatus, MikroTik, RouterProbe, Site } from "@/lib/types";
 
@@ -56,11 +56,21 @@ const emptyRouter = {
   apiMode: "rest" as "rest" | "api6",
   apiPort: 8728,
   makePrimary: true,
+  pauseOnOutage: false,
+  hoursEnabled: false,
+  hoursSchedule: defaultSchedule(),
+  hoursAllow: ["WEEKLY", "MONTHLY"] as string[],
+  hoursPause: true,
+  hoursMessage: "",
   siteId: "site_default",
   newSiteName: "",
 };
 
 /** Typical starting limits per line type. Airtel/Safaricom 5G plans are usually 15 or 30 Mbps. */
+function defaultSchedule(open = "06:00", close = "22:00"): Record<string, [string, string][]> {
+  return Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [String(d), [[open, close] as [string, string]]]));
+}
+
 const ISP_PRESETS: Record<string, { totalMbps: number; perUserMbps: number; users: number }> = {
   AIRTEL: { totalMbps: 30, perUserMbps: 5, users: 25 },
   SAFARICOM: { totalMbps: 30, perUserMbps: 5, users: 25 },
@@ -160,6 +170,12 @@ function NetworkPage() {
         ssl: mt.ssl,
         insecureTls: mt.insecureTls,
         makePrimary: mt.isPrimary,
+        pauseOnOutage: mt.pauseOnOutage,
+        hoursEnabled: mt.hoursEnabled,
+        hoursSchedule: Object.values(mt.hoursSchedule).some((w) => w.length > 0) ? mt.hoursSchedule : defaultSchedule(),
+        hoursAllow: mt.hoursAllow,
+        hoursPause: mt.hoursPause,
+        hoursMessage: mt.hoursMessage ?? "",
         siteId: mt.siteId ?? "site_default",
         newSiteName: "",
       });
@@ -190,6 +206,12 @@ function NetworkPage() {
           apiPort: form.apiMode === "api6" ? form.apiPort || form.port || 8728 : form.port,
           insecureTls: form.insecureTls,
           makePrimary: form.makePrimary,
+          pauseOnOutage: form.pauseOnOutage,
+          hoursEnabled: form.hoursEnabled,
+          hoursSchedule: form.hoursSchedule,
+          hoursAllow: form.hoursAllow as ("HOURLY" | "DAILY" | "WEEKLY" | "MONTHLY")[],
+          hoursPause: form.hoursPause,
+          hoursMessage: form.hoursMessage,
           siteId: form.siteId === NEW_SITE ? undefined : form.siteId,
           newSiteName: form.siteId === NEW_SITE ? form.newSiteName.trim() : undefined,
         },
@@ -927,6 +949,39 @@ function NetworkPage() {
                 onCheckedChange={(v) => setForm({ ...form, makePrimary: v })}
               />
             </div>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Pause time during outages</p>
+                <p className="text-xs text-muted">
+                  If this router goes offline (power cut or ISP down) for 3+ minutes, the lost time is
+                  added back to running Daily, Weekly, Monthly and voucher packages when it returns.
+                  Hourly packages are not covered. Off = the clock keeps running through a blackout.
+                </p>
+              </div>
+              <Switch
+                checked={form.pauseOnOutage}
+                onCheckedChange={(v) => setForm({ ...form, pauseOnOutage: v })}
+              />
+            </div>
+            <HoursEditor
+              value={{
+                enabled: form.hoursEnabled,
+                schedule: form.hoursSchedule,
+                allow: form.hoursAllow,
+                pause: form.hoursPause,
+                message: form.hoursMessage,
+              }}
+              onChange={(v) =>
+                setForm({
+                  ...form,
+                  hoursEnabled: v.enabled,
+                  hoursSchedule: v.schedule,
+                  hoursAllow: v.allow,
+                  hoursPause: v.pause,
+                  hoursMessage: v.message,
+                })
+              }
+            />
             {probe && (
               <div
                 className={
@@ -941,6 +996,10 @@ function NetworkPage() {
                     }${
                       probe.interfaces.length
                         ? ` · ${probe.interfaces.filter((i) => i.running).length} interfaces up`
+                        : ""
+                    }${probe.cpuLoad != null ? ` · CPU ${probe.cpuLoad}%` : ""}${
+                      probe.memTotal && probe.memFree != null
+                        ? ` · Memory ${Math.round(((probe.memTotal - probe.memFree) / probe.memTotal) * 100)}% of ${formatBytes(probe.memTotal)}`
                         : ""
                     }`
                   : probe.error}
@@ -1373,7 +1432,7 @@ function RouterCard({
         <div>
           <p className="text-xs uppercase tracking-wide text-subtle">
             {mt.boardName ?? "RouterOS"}
-            {mt.isPrimary ? " · Primary" : ""}
+            {mt.isPrimary ? " · Primary" : ""}{mt.pauseOnOutage ? " · Outage credit on" : ""}
           </p>
           <h3 className="mt-1 font-display text-xl font-semibold">{mt.name}</h3>
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">
@@ -1406,6 +1465,14 @@ function RouterCard({
         <div>
           <dt className="text-xs uppercase tracking-wide text-subtle">CPU</dt>
           <dd className="mt-0.5">{mt.cpuLoad == null ? "—" : `${mt.cpuLoad}%`}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-subtle">Memory</dt>
+          <dd className="mt-0.5">
+            {mt.memTotal && mt.memFree != null
+              ? `${Math.round(((mt.memTotal - mt.memFree) / mt.memTotal) * 100)}% of ${formatBytes(mt.memTotal)}`
+              : "—"}
+          </dd>
         </div>
       </dl>
       {mt.interfaces.length > 0 && (
@@ -1667,5 +1734,153 @@ function SiteMapDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const DAY_ORDER: [string, string][] = [
+  ["1", "Mon"], ["2", "Tue"], ["3", "Wed"], ["4", "Thu"], ["5", "Fri"], ["6", "Sat"], ["0", "Sun"],
+];
+const KIND_LABEL: Record<string, string> = { HOURLY: "Hourly", DAILY: "Daily", WEEKLY: "Weekly", MONTHLY: "Monthly" };
+
+type HoursValue = {
+  enabled: boolean;
+  schedule: Record<string, [string, string][]>;
+  allow: string[];
+  pause: boolean;
+  message: string;
+};
+
+/** Opening hours for one router: several windows per day, what can be bought while closed. */
+function HoursEditor({ value, onChange }: { value: HoursValue; onChange: (v: HoursValue) => void }) {
+  const set = (patch: Partial<HoursValue>) => onChange({ ...value, ...patch });
+  const setDay = (d: string, windows: [string, string][]) =>
+    set({ schedule: { ...value.schedule, [d]: windows } });
+  const timeBox = "h-9 rounded-md border border-border bg-raised px-2 text-sm";
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-3">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium">Opening hours</p>
+          <p className="text-xs text-muted">
+            Run this router only at set times. Outside them the hotspot is switched off and the portal shows a
+            "Closed" banner. Off = runs all day.
+          </p>
+        </div>
+        <Switch checked={value.enabled} onCheckedChange={(v) => set({ enabled: v })} />
+      </div>
+
+      {value.enabled ? (
+        <>
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {[
+              ["Every day 6 AM–10 PM", () => defaultSchedule("06:00", "22:00")],
+              ["Every day 7 AM–9 PM", () => defaultSchedule("07:00", "21:00")],
+              ["24 hours", () => defaultSchedule("00:00", "23:59")],
+            ].map(([label, make]) => (
+              <button
+                key={String(label)}
+                type="button"
+                className="rounded-full border border-border px-2.5 py-1 text-muted hover:border-accent hover:text-fg"
+                onClick={() => set({ schedule: (make as () => Record<string, [string, string][]>)() })}
+              >
+                {String(label)}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            {DAY_ORDER.map(([d, label]) => {
+              const wins = value.schedule[d] ?? [];
+              return (
+                <div key={d} className="flex items-start gap-2">
+                  <span className="w-9 pt-2 text-sm font-medium">{label}</span>
+                  <div className="flex-1 space-y-1.5">
+                    {wins.length === 0 ? <p className="pt-2 text-xs text-subtle">Closed all day</p> : null}
+                    {wins.map((w, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <input
+                          type="time"
+                          className={timeBox}
+                          value={w[0]}
+                          onChange={(e) => setDay(d, wins.map((x, j) => (j === i ? [e.target.value, x[1]] : x)) as [string, string][])}
+                        />
+                        <span className="text-xs text-subtle">to</span>
+                        <input
+                          type="time"
+                          className={timeBox}
+                          value={w[1]}
+                          onChange={(e) => setDay(d, wins.map((x, j) => (j === i ? [x[0], e.target.value] : x)) as [string, string][])}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Remove window"
+                          className="rounded p-1 text-muted hover:text-danger"
+                          onClick={() => setDay(d, wins.filter((_, j) => j !== i))}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="pt-1.5 text-xs text-accent"
+                    onClick={() => setDay(d, [...wins, wins.length ? ["14:00", "18:00"] : ["06:00", "22:00"]])}
+                  >
+                    + time
+                  </button>
+                </div>
+              );
+            })}
+            <p className="text-xs text-subtle">
+              Add more than one time for a day (e.g. 6–12 and 14–22). If the end is earlier than the start it
+              runs past midnight. Times are East Africa Time.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-sm font-medium">While closed, customers can still buy</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {Object.keys(KIND_LABEL).map((k) => {
+                const on = value.allow.includes(k);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => set({ allow: on ? value.allow.filter((x) => x !== k) : [...value.allow, k] })}
+                    className={`rounded-full border px-3 py-1 text-xs ${on ? "border-accent bg-accent/10 text-fg" : "border-border text-muted"}`}
+                  >
+                    {on ? "✓ " : ""}
+                    {KIND_LABEL[k]}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-xs text-subtle">Everything else shows as unavailable until the router opens.</p>
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Don't count closed hours</p>
+              <p className="text-xs text-muted">
+                Closed time is added back to Daily, Weekly, Monthly and voucher packages when it reopens.
+              </p>
+            </div>
+            <Switch checked={value.pause} onCheckedChange={(v) => set({ pause: v })} />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="hours-msg">Message on the portal (optional)</label>
+            <Input
+              id="hours-msg"
+              value={value.message}
+              maxLength={200}
+              placeholder="e.g. Back online in the morning. Weekly and monthly packages are still available."
+              onChange={(e) => set({ message: e.target.value })}
+            />
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }

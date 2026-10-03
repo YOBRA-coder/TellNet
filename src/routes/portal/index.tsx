@@ -11,6 +11,7 @@ import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { getPortalBootstrap, signOut } from "@/lib/fn/portal";
 
 
+
 const portalRoute = getRouteApi("/portal");
 
 export const Route = createFileRoute("/portal/")({ component: PortalHome });
@@ -55,6 +56,7 @@ function PortalHome() {
   const internetUp = q.data?.internetUp ?? catalog.internetUp;
   const access = q.data?.access;
   const hotspot = settings.hotspotName ?? HOTSPOT_FALLBACK;
+  const member = q.data?.member;
 
   if (access && access.pack.status === "ACTIVE") {
     if (access.otherDevice) {
@@ -141,7 +143,7 @@ function PortalHome() {
           <Link to="/portal/add-device" className="text-muted hover:text-fg">
             Add a device
           </Link>
-          {device?.customerId ? (
+          {member?.registered ? (
             <div className="mt-2 flex items-center justify-center">
               <Button
                 variant="ghost"
@@ -217,6 +219,7 @@ function PortalHome() {
               registered={q.data ? Boolean(q.data.member?.registered) : null}
               requireAccountForMulti={Boolean(settings.requireAccountMultiDevice)}
               rewardsOn={Boolean(settings.loyaltyEnabled || settings.referralEnabled)}
+              operating={q.data?.operating ?? null}
             />
           </div>
         </>

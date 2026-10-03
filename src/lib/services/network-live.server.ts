@@ -239,3 +239,90 @@ export async function refreshNetworkLive(opts: { routerId?: string; maxAgeMs?: n
   return out.map((o) => ({ id: o.id, live: o.live, fresh: o.fresh }));
 }
 
+/**
+ * Record which access point each currently-connected paying customer is
+ * behind. A customer's device MAC is learned by the router on the port the AP
+ * is plugged into (bridge host table), so MAC -> port -> AP. Called every
+ * minute by the background tick; each call adds one "sample" per connected
+ * package, and revenue is later split across APs by sample share.
+ * Ports shared by several APs (or a switch) can't be told apart and are skipped.
+ */
+export async function sampleApUsage(): Promise<number> {
+  const sql = await getSql();
+  const routers = await sql<{ id: string }>`select id from mikrotiks`;
+  let recorded = 0;
+  for (const r of routers) {
+    const aps = await sql<{ id: string; port: string | null }>`
+      select id, port from access_points where mikrotik_id = ${r.id} and port is not null
+    `;
+    const creds = await getRouterCredentialsById(r.id);
+    if (!creds) continue;
+    try {
+      const [active, hosts, ifaces] = await Promise.all([
+        tryList(creds, "/ip/hotspot/active"),
+        tryList(creds, "/interface/bridge/host"),
+        tryList(creds, "/interface"),
+      ]);
+      if (active.length === 0) continue;
+      // port -> AP keys (manual APs plus the router's own radios)
+      const byPort = new Map<string, string[]>();
+      const add = (port: string, key: string) => byPort.set(port, [...(byPort.get(port) ?? []), key]);
+      for (const a of aps) if (a.port) add(a.port, a.id);
+      for (const i of ifaces) {
+        if (i.name && isRadioType(String(i.type ?? "")) && String(i.disabled) !== "true") add(String(i.name), `radio:${r.id}:${i.name}`);
+      }
+      const portOfMac = new Map<string, string>();
+      for (const h of hosts) {
+        const mac = String(h["mac-address"] ?? "").toUpperCase();
+        const port = h["on-interface"] ?? h.interface;
+        if (mac && port && String(h.local) !== "true") portOfMac.set(mac, String(port));
+      }
+      const users = active.map((a) => String(a.user)).filter(Boolean);
+      const pkgs = await sql<{ id: string; customer_id: string; mikrotik_username: string }>`
+        select id, customer_id, mikrotik_username from customer_packages
+        where status = 'ACTIVE' and mikrotik_username = any(${users})
+      `;
+      const pkgByUser = new Map(pkgs.map((p) => [p.mikrotik_username, p]));
+      const seen = new Set<string>();
+      for (const a of active) {
+        const pkg = pkgByUser.get(String(a.user));
+        const port = portOfMac.get(String(a["mac-address"] ?? "").toUpperCase());
+        const keys = port ? byPort.get(port) : undefined;
+        if (!pkg || !keys || keys.length !== 1) continue; // unknown or ambiguous port
+        const k = `${keys[0]}|${pkg.id}`;
+        if (seen.has(k)) continue; // two devices on one package count once per tick
+        seen.add(k);
+        await sql`
+          insert into ap_usage (ap_key, package_id, customer_id, samples)
+          values (${keys[0]}, ${pkg.id}, ${pkg.customer_id}, 1)
+          on conflict (ap_key, package_id) do update
+            set samples = ap_usage.samples + 1, last_seen = now()
+        `;
+        recorded += 1;
+      }
+    } catch (err) {
+      console.error("[ap-usage]", r.id, err instanceof Error ? err.message : err);
+    }
+  }
+  return recorded;
+}
+
+/** Revenue and paying customers per AP over the last `days` days (successful M-Pesa payments only). */
+export async function apRevenue(days: number): Promise<Map<string, { revenue: number; customers: number }>> {
+  const sql = await getSql();
+  const rows = await sql<{ ap_key: string; revenue: number; customers: number }>`
+    select u.ap_key,
+           sum(pay.amount * u.samples::float8 / t.tot)::float8 as revenue,
+           count(distinct u.customer_id)::int as customers
+    from ap_usage u
+    join (select package_id, sum(samples) as tot from ap_usage group by package_id) t on t.package_id = u.package_id
+    join customer_packages cp on cp.id = u.package_id
+    join payments pay on pay.id = cp.payment_id
+    where pay.status = 'SUCCESS'
+      and coalesce(pay.mpesa_transaction_id, '') not like 'PTS-%'
+      and coalesce(pay.mpesa_transaction_id, '') not like 'VCH-%'
+      and cp.start_time >= now() - (${days} * interval '1 day')
+    group by u.ap_key
+  `;
+  return new Map(rows.map((r) => [r.ap_key, { revenue: Math.round(Number(r.revenue)), customers: Number(r.customers) }]));
+}

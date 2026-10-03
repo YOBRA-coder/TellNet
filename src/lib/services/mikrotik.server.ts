@@ -208,6 +208,8 @@ export async function probeRouter(creds: RouterCreds): Promise<RouterProbe> {
         boardName: r.boardName || null,
         uptime: r.uptime || null,
         cpuLoad: r.cpuLoad,
+        memTotal: r.memTotal ?? null,
+        memFree: r.memFree ?? null,
         hotspotServers: r.hotspotServers || [],
         interfaces: [],
         error: null,
@@ -285,6 +287,8 @@ export async function probeRouter(creds: RouterCreds): Promise<RouterProbe> {
         cpuRaw == null || cpuRaw === ""
           ? null
           : Number.parseInt(String(cpuRaw), 10) || 0,
+      memTotal: resource?.["total-memory"] != null ? Number(resource["total-memory"]) || null : null,
+      memFree: resource?.["free-memory"] != null ? Number(resource["free-memory"]) || null : null,
       hotspotServers,
       interfaces,
       error: null,
@@ -1095,4 +1099,56 @@ export async function rosPing(creds: RouterCreds, address: string): Promise<Ping
   } catch {
     return { ok: false, lossPct: 100, avgMs: null };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Opening hours: switch every TelNet hotspot user off/on
+// ---------------------------------------------------------------------------
+
+/**
+ * Enable/disable the hotspot users TelNet created (comment "telnet:..."),
+ * optionally kicking active sessions. `only` limits enabling to those names
+ * (users with a running package) so expired/blocked logins stay off.
+ */
+export async function setTelnetUsersState(
+  creds: RouterCreds,
+  opts: { disabled: boolean; kickActive?: boolean; only?: string[] },
+): Promise<{ changed: number; kicked: number }> {
+  const users = (await rosList(creds, "/ip/hotspot/user")).filter((u) => String(u.comment ?? "").startsWith("telnet:"));
+  const only = opts.only ? new Set(opts.only) : null;
+  const api =
+    creds.apiMode === "api6"
+      ? { host: creds.host, port: creds.apiPort || 8728, user: creds.user, password: creds.password }
+      : null;
+  let changed = 0;
+  for (const u of users) {
+    const id = u[".id"];
+    if (!id) continue;
+    if (!opts.disabled && only && !only.has(String(u.name))) continue;
+    const isDisabled = String(u.disabled) === "true" || String(u.disabled) === "yes";
+    if (isDisabled === opts.disabled) continue;
+    if (api) {
+      await apiCall(api, [["/ip/hotspot/user/set", `=.id=${id}`, `=disabled=${opts.disabled ? "yes" : "no"}`]]);
+    } else {
+      await routeros(
+        `/rest/ip/hotspot/user/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify({ disabled: opts.disabled ? "true" : "false" }) },
+        creds,
+      );
+    }
+    changed += 1;
+  }
+  let kicked = 0;
+  if (opts.kickActive) {
+    const names = new Set(users.map((u) => String(u.name)));
+    const active = await rosList(creds, "/ip/hotspot/active");
+    for (const a of active) {
+      const id = a[".id"];
+      if (!id || !names.has(String(a.user))) continue;
+      if (api) await apiCall(api, [["/ip/hotspot/active/remove", `=.id=${id}`]]);
+      else await routeros(`/rest/ip/hotspot/active/${encodeURIComponent(id)}`, { method: "DELETE" }, creds);
+      kicked += 1;
+    }
+  }
+  return { changed, kicked };
 }

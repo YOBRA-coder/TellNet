@@ -1,4 +1,31 @@
-# Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish
+# Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
+
+- **Opening hours per MikroTik** (migration `0029_hours_ap_revenue.sql`; Network → router → Opening hours): weekly schedule, several
+  time windows per day (past-midnight windows supported), East Africa Time (override with `APP_TIMEZONE`). When closed, every TelNet
+  hotspot user on that router is disabled and active sessions are kicked (your own router users are never touched); on opening,
+  only users with a running, non-blocked package are re-enabled. Portal shows a "We're closed — opens 6:00 AM" banner (with an
+  optional custom message); only the package kinds you allow while closed (default Weekly + Monthly) can be bought, the rest show
+  "Opens …". Enforced on payment, voucher redemption and points redemption. "Don't count closed hours" (default on) freezes expiry
+  while closed and adds the closed time back to Daily/Weekly/Monthly/voucher packages on reopening (a package bought while closed is
+  credited only from its purchase). Switching the schedule on/off or editing it applies immediately. Needs the background tick
+  (`/api/cron/tick` every minute on Vercel) to flip at the exact minute.
+- **Revenue per access point**: the tick samples which AP each connected customer is behind (router MAC table -> port -> AP) and
+  splits each successful M-Pesa payment across APs by that share. Network map -> Access points shows Revenue + paying customers for
+  the last 7/30/90 days and flags "Low earner" APs (needs >= 3 APs with data). Each AP must be on its own router port (APs sharing
+  a port/switch can't be told apart and are skipped); revenue builds up from when this is deployed.
+- **CPU and memory** now show after Test connection and on each router card (and the Network map already shows them live).
+
+- **Pause time during outages** (per MikroTik, migration `0028_outage_credit.sql`; Network → router → toggle): when the router is
+  unreachable 3+ minutes (blackout / ISP down) the lost time is added back to running **Daily, Weekly, Monthly and voucher** packages
+  (hourly packages are not covered; packages queued behind a credited one slide back too) when it returns,
+  expiry is frozen while it is down (max 72 h), and credited customers are re-activated on the router. Off by default;
+  without it the calendar clock keeps running through a blackout (the existing "auto-resume" only restores the login).
+  Primary router credits every running package; other routers credit customers of their site.
+- **All routers are now probed** (not only the primary) so outages are noticed per router.
+- **`/api/cron/tick?key=<CRON_SECRET>`**: for hosts without timers (Vercel). Probes every router, expires lapsed packages.
+  Set `CRON_SECRET` and call it every minute from an external scheduler (Vercel Hobby cron is daily-only).
+- **Reset PIN lets the operator type the PIN/password** the customer wants (or generate one); customers can **change their own PIN**
+  on the Rewards page (other devices are signed out).
 
 - **Vouchers management** (migration `0027_guest_limits_voucher_clean.sql`): status tabs (Available/Redeemed/Expired/All),
   search, batch list with counts, paging; delete one / a batch / all redeemed / all expired; optional **auto-delete
@@ -11,6 +38,8 @@
 - **Package duration** is entered as days / hours / minutes (quick picks: 30 min … 1 week, 1 month).
 - **Revenue** counts successful M-Pesa payments only (failed/cancelled/pending excluded); voucher and loyalty-point
   redemptions are no longer counted as cash (vouchers shown as a separate note on the dashboard).
+- **Referrals need real money**: a voucher or loyalty-point redemption no longer triggers referral/welcome bonuses (it used to, because it
+  ran through the same activation path). The referral stays pending until the friend's first real M-Pesa payment.
 - **Settings**: removed the unused "Default upload" field (each package sets its own upload).
 
 - **Per-ISP capacity** (migration `0026_capacity_mode.sql`): total speed, per-user cap and seats are now taken from the

@@ -34,8 +34,10 @@ import {
 } from "@/lib/services/mikrotik.server";
 import { resetCustomerPin } from "@/lib/services/customer-auth.server";
 import { getRadiusConfig } from "@/lib/services/radius.server";
-import { refreshNetworkLive } from "@/lib/services/network-live.server";
+import { apRevenue, refreshNetworkLive } from "@/lib/services/network-live.server";
 import { getEffectiveCapacity } from "@/lib/services/capacity.server";
+import { recordProbeResult } from "@/lib/services/outage.server";
+import { applyOperatingHours, toRouterHours } from "@/lib/services/hours.server";
 import {
   getRadiusListenerStatus,
   syncRadiusListener,
@@ -390,6 +392,8 @@ export const customerAction = createServerFn({ method: "POST" })
         ]),
         minutes: z.number().int().min(1).max(525_600).optional(),
         packageId: z.string().optional(),
+        /** resetPin: the PIN/password the customer wants (blank = generate one) */
+        pin: z.string().max(64).optional(),
       })
       .parse(data),
   )
@@ -454,11 +458,18 @@ export const customerAction = createServerFn({ method: "POST" })
     }
 
     if (data.action === "resetPin") {
-      const pin = await resetCustomerPin(data.customerId);
-      await logEvent("CUSTOMER", `PIN reset for customer ${data.customerId}.`);
+      let pin: string;
+      try {
+        pin = await resetCustomerPin(data.customerId, data.pin?.trim() || undefined);
+      } catch (err) {
+        return { ok: false as const, error: err instanceof Error ? err.message : "Invalid PIN." };
+      }
+      await logEvent("CUSTOMER", `PIN ${data.pin?.trim() ? "set" : "reset"} for customer ${data.customerId}.`);
       return {
         ok: true as const,
-        message: `New PIN: ${pin} — give it to the customer; they can sign in with it now.`,
+        message: data.pin?.trim()
+          ? "PIN/password set — the customer can sign in with it now."
+          : `New PIN: ${pin} — give it to the customer; they can sign in with it now.`,
         pin,
       };
     }
@@ -1102,6 +1113,14 @@ const mikrotikInput = z.object({
   /** rest = RouterOS 7 REST; api6 = RouterOS 6 binary API */
   apiMode: z.enum(["rest", "api6"]).default("rest"),
   apiPort: z.number().int().min(1).max(65535).optional(),
+  /** Add time lost in an outage back to running packages. */
+  pauseOnOutage: z.boolean().optional(),
+  /** Opening hours */
+  hoursEnabled: z.boolean().optional(),
+  hoursSchedule: z.record(z.string(), z.array(z.tuple([z.string().regex(/^\d{1,2}:\d{2}$/), z.string().regex(/^\d{1,2}:\d{2}$/)]))).optional(),
+  hoursAllow: z.array(z.enum(["HOURLY", "DAILY", "WEEKLY", "MONTHLY"])).optional(),
+  hoursPause: z.boolean().optional(),
+  hoursMessage: z.string().max(200).optional(),
   siteId: z.string().optional(),
   /** Create a brand-new site/town on the fly (used instead of siteId). */
   newSiteName: z.string().min(2).max(80).optional(),
@@ -1179,36 +1198,9 @@ async function persistProbe(
   id: string,
   probe: Awaited<ReturnType<typeof probeRouter>>,
 ) {
-  const sql = await getSql();
-  const prior = (
-    await sql<{ status: string; is_primary: boolean }>`
-      select status, is_primary from mikrotiks where id = ${id} limit 1
-    `
-  )[0];
-  await sql`
-    update mikrotiks set
-      status = ${probe.ok ? "ONLINE" : "OFFLINE"},
-      identity = ${probe.identity},
-      version = ${probe.version},
-      board_name = ${probe.boardName},
-      uptime = ${probe.uptime},
-      cpu_load = ${probe.cpuLoad},
-      last_ping_at = now(),
-      last_error = ${probe.error},
-      interfaces_json = ${JSON.stringify(probe.interfaces)},
-      updated_at = now()
-    where id = ${id}
-  `;
-  // Recovery edge (was down/unknown, now up) on the primary router — the
-  // only one activation actually talks to today — auto-resumes Weekly,
-  // Monthly and Voucher packages. Fire-and-forget: a slow/failed resume
-  // must never block the probe response the admin is waiting on.
-  const wasDown = prior && prior.status !== "ONLINE";
-  if (wasDown && probe.ok && prior?.is_primary) {
-    resumeEligiblePackages("auto").catch((err) => {
-      console.error("[resume] auto-resume after router recovery failed:", err);
-    });
-  }
+  // Shared with the background poller: writes the result and handles the
+  // outage start / recovery (credit + auto-resume).
+  await recordProbeResult(id, probe);
 }
 
 export const saveMikroTik = createServerFn({ method: "POST" })
@@ -1248,12 +1240,15 @@ export const saveMikroTik = createServerFn({ method: "POST" })
 
     await sql`
       insert into mikrotiks (
-        id, name, host, api_user, api_password, hotspot_name, ssl, insecure_tls, is_primary, status, api_mode, api_port, site_id
+        id, name, host, api_user, api_password, hotspot_name, ssl, insecure_tls, is_primary, status, api_mode, api_port, site_id, pause_on_outage,
+        hours_enabled, hours_json, hours_allow, hours_pause, hours_message
       ) values (
         ${id}, ${data.name}, ${host}, ${data.apiUser}, ${password},
         ${data.hotspotName || "hotspot1"}, ${data.ssl}, ${data.insecureTls}, ${makePrimary}, 'UNKNOWN',
         ${data.apiMode}, ${data.apiMode === "api6" ? (data.apiPort || data.port || 8728) : (data.port || null)},
-        ${siteId}
+        ${siteId}, ${data.pauseOnOutage ?? false},
+        ${data.hoursEnabled ?? false}, ${data.hoursSchedule ? JSON.stringify(data.hoursSchedule) : null},
+        ${(data.hoursAllow ?? ["WEEKLY", "MONTHLY"]).join(",")}, ${data.hoursPause ?? true}, ${data.hoursMessage?.trim() || null}
       )
       on conflict (id) do update set
         name = excluded.name,
@@ -1267,8 +1262,18 @@ export const saveMikroTik = createServerFn({ method: "POST" })
         api_mode = excluded.api_mode,
         api_port = excluded.api_port,
         site_id = excluded.site_id,
+        pause_on_outage = case when ${data.pauseOnOutage ?? null}::boolean is null
+                               then mikrotiks.pause_on_outage else excluded.pause_on_outage end,
+        hours_enabled = case when ${data.hoursEnabled ?? null}::boolean is null then mikrotiks.hours_enabled else excluded.hours_enabled end,
+        hours_json = case when ${data.hoursSchedule ? "set" : null}::text is null then mikrotiks.hours_json else excluded.hours_json end,
+        hours_allow = case when ${data.hoursAllow ? "set" : null}::text is null then mikrotiks.hours_allow else excluded.hours_allow end,
+        hours_pause = case when ${data.hoursPause ?? null}::boolean is null then mikrotiks.hours_pause else excluded.hours_pause end,
+        hours_message = case when ${data.hoursMessage != null ? "set" : null}::text is null then mikrotiks.hours_message else excluded.hours_message end,
         updated_at = now()
     `;
+
+    // A new/changed schedule takes effect now, not at the next tick.
+    await applyOperatingHours().catch(() => {});
 
     const probe = await probeRouter({
       host,
@@ -1712,8 +1717,9 @@ function rollUp(states: HealthState[]): HealthState {
   return "ONLINE";
 }
 
-async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
+async function buildNetworkMap(siteId: string | null, days = 30): Promise<NetworkMapData> {
   const sql = await getSql();
+  const apMoney = await apRevenue(days).catch(() => new Map<string, { revenue: number; customers: number }>());
   const [sitesRaw, routersRaw, ispsRaw, apsRaw] = await Promise.all([
     sql<SqlRow>`select * from sites order by (id = 'site_default') desc, name`,
     sql<SqlRow>`select * from mikrotiks order by is_primary desc, created_at`,
@@ -1771,6 +1777,9 @@ async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
         clients: a.clients == null ? null : Number(a.clients),
         signalDbm: null,
         checkedAt: a.checked_at ? iso(a.checked_at) : null,
+        // revenue can only be attributed when we know which router port the AP is on
+        revenue: a.port ? (apMoney.get(String(a.id))?.revenue ?? 0) : null,
+        paidCustomers: a.port ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
       }));
     // The router's own wifi radios show up automatically (real signal data).
     const radios: AccessPointRow[] = (live?.radios ?? []).map((r) => {
@@ -1789,6 +1798,8 @@ async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
         clients: r.clients,
         signalDbm: r.signalDbm,
         checkedAt: live!.at,
+        revenue: apMoney.get(`radio:${mt.id}:${r.name}`)?.revenue ?? 0,
+        paidCustomers: apMoney.get(`radio:${mt.id}:${r.name}`)?.customers ?? 0,
       };
     });
     const aps = [...radios, ...manual];
@@ -1803,6 +1814,15 @@ async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
           ? "WARNING"
           : "ONLINE"
         : "UNKNOWN";
+    const hrs = toRouterHours({
+      id: mt.id,
+      hours_enabled: mt.hoursEnabled,
+      hours_json: JSON.stringify(mt.hoursSchedule),
+      hours_allow: mt.hoursAllow.join(","),
+      hours_message: mt.hoursMessage,
+    });
+    const opensLabel = hrs.opensAtLabel;
+    const closesLabel = hrs.closesAtLabel;
     return {
       id: mt.id,
       name: mt.name,
@@ -1812,6 +1832,12 @@ async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
       siteName: site?.name ?? "Main site",
       state,
       stateReason: unreachable ? (mt.lastError ?? live?.error ?? "Router unreachable") : reasons[0] ?? null,
+      hours: {
+        enabled: mt.hoursEnabled,
+        open: !(mt.hoursEnabled && mt.hoursState === "CLOSED"),
+        opensAtLabel: opensLabel,
+        closesAtLabel: closesLabel,
+      },
       boardName: mt.boardName,
       version: mt.version,
       identity: mt.identity,
@@ -1855,7 +1881,7 @@ async function buildNetworkMap(siteId: string | null): Promise<NetworkMapData> {
 export const getNetworkMap = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) =>
-    z.object({ siteId: z.string().optional(), refresh: z.boolean().optional() }).parse(data ?? {}),
+    z.object({ siteId: z.string().optional(), refresh: z.boolean().optional(), days: z.number().int().min(1).max(365).optional() }).parse(data ?? {}),
   )
   .handler(async ({ data }) => {
     if (data.refresh) {
@@ -1883,7 +1909,7 @@ export const getNetworkMap = createServerFn({ method: "POST" })
         }).catch(() => {});
       }
     }
-    return buildNetworkMap(normSite(data.siteId));
+    return buildNetworkMap(normSite(data.siteId), data.days ?? 30);
   });
 
 export const saveAccessPoint = createServerFn({ method: "POST" })

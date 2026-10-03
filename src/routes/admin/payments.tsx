@@ -168,10 +168,10 @@ function PaymentsPage() {
           </SelectContent>
         </Select>
       </div>
-      <div className="w-full overflow-x-auto rounded-xl border border-border bg-surface">
-  <Table>
-          <TableHeader className="whitespace-nowrap">
-            <TableRow>
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <Table>
+          <TableHeader>
+            <TableRow className="whitespace-nowrap">
               <TableHead>Receipt</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Amount</TableHead>

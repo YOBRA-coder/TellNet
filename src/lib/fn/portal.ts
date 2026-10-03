@@ -11,8 +11,10 @@ import {
   findCustomerByReferralCode,
   redeemPointsForPackage,
 } from "@/lib/services/loyalty.server";
+import { getHoursForSite, purchaseBlockedReason } from "@/lib/services/hours.server";
 import {
   announceReferral,
+  changeCustomerSecret,
   getSessionCustomer,
   signInCustomer,
   signOutDevice,
@@ -82,6 +84,8 @@ async function loadCatalog(siteSlug?: string | null) {
     },
     packages,
     internetUp,
+    // Opening hours of the router that serves this visitor's site (null = no schedule)
+    operating: await getHoursForSite(siteId),
   };
 }
 
@@ -345,6 +349,12 @@ export const startPayment = createServerFn({ method: "POST" })
       else if (pkg.site_id) paySiteId = String(pkg.site_id);
     } else if (pkg.site_id) {
       paySiteId = String(pkg.site_id);
+    }
+
+    // Closed for the night? Only the package kinds the operator allows can be bought.
+    {
+      const closedMsg = purchaseBlockedReason(await getHoursForSite(paySiteId), String(pkg.duration_kind ?? ""));
+      if (closedMsg) return { ok: false as const, error: closedMsg, closed: true as const };
     }
 
     // A referral code only counts on a qualifying package (priced above the
@@ -906,6 +916,18 @@ export const signIn = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => signInCustomer(data));
+
+export const changePin = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z
+      .object({
+        token: z.string().min(8).max(80),
+        current: z.string().min(1).max(64),
+        next: z.string().min(4).max(64),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => changeCustomerSecret(data));
 
 export const signOut = createServerFn({ method: "POST" })
   .validator((data: unknown) => z.object({ token: z.string().min(8).max(80) }).parse(data))

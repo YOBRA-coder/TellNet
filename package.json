@@ -7,7 +7,7 @@
     "nf3": "0.3.17"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
+  "dev": "node --env-file-if-exists=.env scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
     "build": "node --env-file-if-exists=.env scripts/with-app-env.mjs vite build && node --env-file-if-exists=.env scripts/migrate.mjs",
     "start": "node .output/server/index.mjs",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
@@ -48,7 +48,7 @@
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-router": "^1.170.0",
-    "@tanstack/react-start": "^1.168.60",
+    "@tanstack/react-start": "^1.168.0",
     "@tanstack/react-table": "^8.21.0",
     "@tanstack/router-plugin": "^1.168.0",
     "better-auth": "~1.6.30",
