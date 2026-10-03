@@ -30,7 +30,8 @@ export function PackageBrowser({
   /** opening hours of the router serving this visitor (null/disabled = always open) */
   operating?: PortalOperating | null;
 }) {
-  const [filter, setFilter] = useState<Filter>("ALL");
+  // Set default filter to "1" instead of "ALL"
+  const [filter, setFilter] = useState<Filter>("1");
   const [dismissed, setDismissed] = useState(true); // hidden until we know (avoids a flash)
 
   useEffect(() => {
@@ -140,7 +141,7 @@ export function PackageBrowser({
               role="tab"
               type="button"
               aria-selected={filter === key}
-              onClick={() => setFilter(filter === key ? "ALL" : key)}
+              onClick={() => setFilter(key)} // Clean switch, no toggle
               className={cn(
                 "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition",
                 filter === key ? "bg-accent text-bg" : "text-muted hover:text-fg",
@@ -165,7 +166,7 @@ export function PackageBrowser({
             unavailableLabel={
               cannotBuy(pkg) ? (operating?.opensAtLabel ? `Opens ${operating.opensAtLabel}` : "Closed") : undefined
             }
-            style={{ animationDelay: `${i * 40}ms` }} // inline style mapped here
+            style={{ animationDelay: `${i * 40}ms` }}
           />
         ))}
 
