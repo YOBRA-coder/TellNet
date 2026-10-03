@@ -184,6 +184,18 @@ export async function isPrimaryClosed(): Promise<boolean> {
   return Boolean(r?.hours_enabled) && r?.hours_state === "CLOSED";
 }
 
+<<<<<<< HEAD
+=======
+/** Is the router that serves this site closed for the night right now? (primary router if the site has none) */
+export async function isSiteClosed(siteId: string | null | undefined): Promise<boolean> {
+  const h = await getHoursForSite(siteId ?? "site_default");
+  if (!h || !h.enabled) return false;
+  const sql = await getSql();
+  const r = (await sql<{ hours_state: string }>`select hours_state from mikrotiks where id = ${h.routerId} limit 1`)[0];
+  return r?.hours_state === "CLOSED";
+}
+
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 async function usernamesToEnable(): Promise<string[]> {
   const sql = await getSql();
   const rows = await sql<{ u: string }>`

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
-import { signIn, signUp } from "@/lib/fn/portal";
+import { resetPasswordWithReceipt, signIn, signUp } from "@/lib/fn/portal";
 import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
 import { isKenyanPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,7 @@ function AuthPage() {
 
   const { device, update } = useDevice();
 
-  const [mode, setMode] = useState<"signin" | "signup">(
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">(
     search.mode,
   );
 
@@ -59,6 +59,9 @@ function AuthPage() {
   const [claim, setClaim] = useState("");
 
   const [needClaim, setNeedClaim] = useState(false);
+
+  // "Forgot PIN" — M-Pesa code from a payment made with this number
+  const [receipt, setReceipt] = useState("");
 
   const [error, setError] = useState<string | null>(
     null,
@@ -82,8 +85,39 @@ function AuthPage() {
         throw new Error(
           mode === "signup"
             ? "Enter a PIN or password."
-            : "Enter your PIN or password.",
+            : mode === "reset"
+              ? "Enter a new PIN or password."
+              : "Enter your PIN or password.",
         );
+      }
+
+      if (mode === "reset") {
+        if (!receipt.trim()) {
+          throw new Error(
+            "Enter the M-Pesa transaction code from one of your payments.",
+          );
+        }
+
+        if (secret.length < 4) {
+          throw new Error(
+            "Use at least 4 characters for your new PIN or password.",
+          );
+        }
+
+        if (secret !== confirm) {
+          throw new Error(
+            "The two PINs/passwords don't match.",
+          );
+        }
+
+        return resetPasswordWithReceipt({
+          data: {
+            phone,
+            transactionId: receipt.trim(),
+            next: secret,
+            token: device.token,
+          },
+        });
       }
 
       if (mode === "signup") {
@@ -122,8 +156,6 @@ function AuthPage() {
     },
 
     onSuccess: (res) => {
-      console.log("AUTH RESPONSE:", res);
-
       if (!res.ok) {
         setError(
           res.error || "Authentication failed.",
@@ -162,8 +194,6 @@ function AuthPage() {
     },
 
     onError: (e) => {
-      console.error("AUTH ERROR:", e);
-
       setError(
         e instanceof Error
           ? e.message
@@ -173,15 +203,17 @@ function AuthPage() {
   });
 
   const switchMode = (
-    nextMode: "signin" | "signup",
+    nextMode: "signin" | "signup" | "reset",
   ) => {
     if (submit.isPending) return;
 
     setMode(nextMode);
     setError(null);
+    setSecret("");
+    setConfirm("");
+    setReceipt("");
 
-    if (nextMode === "signin") {
-      setConfirm("");
+    if (nextMode !== "signup") {
       setClaim("");
       setNeedClaim(false);
     }
@@ -194,7 +226,7 @@ function AuthPage() {
     <button
       type="button"
       role="tab"
-      aria-selected={mode === m}
+      aria-selected={mode === m || (m === "signin" && mode === "reset")}
       aria-controls="auth-form"
       onClick={(e) => {
         e.preventDefault();
@@ -210,7 +242,7 @@ function AuthPage() {
         "touch-manipulation select-none",
         "transition",
         "active:scale-[0.98]",
-        mode === m
+        mode === m || (m === "signin" && mode === "reset")
           ? "bg-accent text-accent-fg"
           : "text-muted hover:text-fg",
       )}
@@ -226,13 +258,17 @@ function AuthPage() {
       <h1 className="font-display text-3xl font-semibold tracking-tight">
         {mode === "signup"
           ? "Create your account"
-          : "Welcome back"}
+          : mode === "reset"
+            ? "Reset your PIN"
+            : "Welcome back"}
       </h1>
 
       <p className="mt-2 text-sm text-muted">
         {mode === "signup"
           ? "Sign up to earn loyalty points and get your own referral code. You don't need an account just to buy internet."
-          : "Sign in with your phone number and PIN or password."}
+          : mode === "reset"
+            ? "Forgot your PIN or password? Enter your phone number and an M-Pesa transaction code from a payment you made with it, then choose a new one."
+            : "Sign in with your phone number and PIN or password."}
       </p>
 
       {/* Sign in / Sign up tabs */}
@@ -284,10 +320,42 @@ function AuthPage() {
           />
         </div>
 
+        {/* Forgot PIN: prove the number is yours */}
+        {mode === "reset" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="auth-receipt">
+              M-Pesa transaction code
+            </Label>
+
+            <Input
+              id="auth-receipt"
+              name="receipt"
+              placeholder="e.g. QGH7XXXXXX"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              value={receipt}
+              onChange={(e) =>
+                setReceipt(
+                  e.target.value.toUpperCase(),
+                )
+              }
+              className="h-12 text-base"
+            />
+
+            <p className="text-xs text-subtle">
+              Find it in the M-Pesa message for any
+              payment you made here with this number.
+            </p>
+          </div>
+        ) : null}
+
         {/* PIN / Password */}
         <div className="space-y-1.5">
           <Label htmlFor="auth-secret">
-            PIN or password
+            {mode === "reset"
+              ? "New PIN or password"
+              : "PIN or password"}
           </Label>
 
           <Input
@@ -295,17 +363,17 @@ function AuthPage() {
             name="password"
             type="password"
             autoComplete={
-              mode === "signup"
-                ? "new-password"
-                : "current-password"
+              mode === "signin"
+                ? "current-password"
+                : "new-password"
             }
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
             placeholder={
-              mode === "signup"
-                ? "4+ digits or a password"
-                : "Your PIN / password"
+              mode === "signin"
+                ? "Your PIN / password"
+                : "4+ digits or a password"
             }
             value={secret}
             onChange={(e) =>
@@ -314,6 +382,30 @@ function AuthPage() {
             className="h-12 text-base"
           />
         </div>
+
+        {/* Confirm (sign up and reset) */}
+        {mode === "reset" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="auth-confirm-reset">
+              Confirm new PIN or password
+            </Label>
+
+            <Input
+              id="auth-confirm-reset"
+              name="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={confirm}
+              onChange={(e) =>
+                setConfirm(e.target.value)
+              }
+              className="h-12 text-base"
+            />
+          </div>
+        ) : null}
 
         {/* Sign-up-only fields */}
         {mode === "signup" ? (
@@ -417,16 +509,45 @@ function AuthPage() {
             ? "Please wait…"
             : mode === "signup"
               ? "Create account"
-              : "Sign in"}
+              : mode === "reset"
+                ? "Reset PIN and sign in"
+                : "Sign in"}
         </Button>
       </form>
 
       {/* Forgot PIN */}
       {mode === "signin" ? (
-        <p className="mt-4 text-center text-xs text-subtle">
-          Forgot your PIN? Ask the hotspot operator
-          to reset it for you.
-        </p>
+        <div className="mt-4 space-y-1 text-center">
+          <button
+            type="button"
+            onClick={() => switchMode("reset")}
+            className="min-h-[44px] touch-manipulation px-3 text-sm font-medium text-accent hover:underline"
+          >
+            Forgot your PIN or password?
+          </button>
+
+          <p className="text-xs text-subtle">
+            No M-Pesa payment on this number yet? Ask
+            the hotspot operator to reset it for you.
+          </p>
+        </div>
+      ) : null}
+
+      {mode === "reset" ? (
+        <div className="mt-4 space-y-1 text-center">
+          <button
+            type="button"
+            onClick={() => switchMode("signin")}
+            className="min-h-[44px] touch-manipulation px-3 text-sm font-medium text-accent hover:underline"
+          >
+            Back to sign in
+          </button>
+
+          <p className="text-xs text-subtle">
+            Can't find a code? The hotspot operator can
+            reset your PIN for you.
+          </p>
+        </div>
       ) : null}
 
       {/* Back */}

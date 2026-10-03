@@ -30,6 +30,8 @@ import {
 import { formatDuration, formatKes, formatSpeed } from "@/lib/format";
 import type { Package, PackageBadge, PackageCategory, PackageDurationKind } from "@/lib/types";
 
+type PackageRow = Package & { siteIds: string[] };
+
 export const Route = createFileRoute("/admin/packages")({
   component: PackagesAdminPage,
 });
@@ -54,7 +56,7 @@ const empty = {
   uploadKbps: 1,
   dataLimitMb: "" as number | "",
   status: "ACTIVE" as "ACTIVE" | "INACTIVE",
-  siteId: "" as string, // "" = All Sites
+  siteIds: [] as string[], // [] = All sites
   badge: "" as "" | PackageBadge,
   durationKind: "HOURLY" as PackageDurationKind,
   pointsCost: "" as number | "",
@@ -69,15 +71,22 @@ function PackagesAdminPage() {
   const sitesQ = useQuery({ queryKey: ["sites"], queryFn: () => listSites(), staleTime: 60_000 });
   const sites = sitesQ.data ?? [];
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Package | null>(null);
+  const [editing, setEditing] = useState<PackageRow | null>(null);
   const [form, setForm] = useState(empty);
 
-  function siteName(id: string | null) {
-    if (!id) return "All sites";
-    return sites.find((s) => s.id === id)?.name ?? "Unknown site";
+  function siteNames(ids: string[]) {
+    if (ids.length === 0) return "All sites";
+    return ids.map((id) => sites.find((s) => s.id === id)?.name ?? "Unknown site").join(", ");
   }
 
-  function startEdit(pkg?: Package) {
+  function toggleSite(id: string) {
+    setForm((f) => ({
+      ...f,
+      siteIds: f.siteIds.includes(id) ? f.siteIds.filter((x) => x !== id) : [...f.siteIds, id],
+    }));
+  }
+
+  function startEdit(pkg?: PackageRow) {
     if (pkg) {
       setEditing(pkg);
       setForm({
@@ -88,7 +97,7 @@ function PackagesAdminPage() {
         uploadKbps: pkg.uploadKbps / 1024,
         dataLimitMb: pkg.dataLimitMb ?? "",
         status: pkg.status,
-        siteId: pkg.siteId ?? "",
+        siteIds: pkg.siteIds ?? (pkg.siteId ? [pkg.siteId] : []),
         badge: pkg.badge ?? "",
         durationKind: pkg.durationKind,
         pointsCost: pkg.pointsCost ?? "",
@@ -114,7 +123,8 @@ function PackagesAdminPage() {
           uploadKbps: Number(form.uploadKbps) * 1024,
           dataLimitMb: form.dataLimitMb === "" ? null : Number(form.dataLimitMb),
           status: form.status,
-          siteId: form.siteId || null,
+          siteIds: form.siteIds,
+          siteId: form.siteIds[0] ?? null,
           badge: form.badge || null,
           durationKind: form.durationKind,
           pointsCost: form.pointsCost === "" ? null : Number(form.pointsCost),
@@ -163,7 +173,7 @@ function PackagesAdminPage() {
               <TableHead>Category</TableHead>
               <TableHead>Devices</TableHead>
               <TableHead>Points</TableHead>
-              <TableHead>Site</TableHead>
+              <TableHead>Sites</TableHead>
               <TableHead>Badge</TableHead>
               <TableHead>Status</TableHead>
               <TableHead />
@@ -195,7 +205,9 @@ function PackagesAdminPage() {
                 <TableCell className="text-sm text-muted">
                   {pkg.pointsCost ? `${pkg.pointsCost} pts` : "—"}
                 </TableCell>
-                <TableCell className="text-sm text-muted">{siteName(pkg.siteId)}</TableCell>
+                <TableCell className="max-w-[16rem] truncate text-sm text-muted" title={siteNames(pkg.siteIds)}>
+                  {siteNames(pkg.siteIds)}
+                </TableCell>
                 <TableCell>
                   {pkg.badge ? (
                     <Badge tone="accent">{BADGE_LABEL[pkg.badge]}</Badge>
@@ -359,25 +371,40 @@ function PackagesAdminPage() {
                 </p>
               </Field>
 
-              {true && (
-                <Field label="Site">
-                  <select
-                    className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
-                    value={form.siteId}
-                    onChange={(e) =>
-                      setForm({ ...form, siteId: e.target.value })
-                    }
-                  >
-                    <option value="">All sites</option>
-
-                    {sites.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
+              <Field label="Sites where this package is sold" className="sm:col-span-2">
+                <div className="space-y-2 rounded-md border border-border bg-raised p-3">
+                  <label className="flex min-h-[32px] cursor-pointer items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--accent,#5eead4)]"
+                      checked={form.siteIds.length === 0}
+                      onChange={() => setForm({ ...form, siteIds: [] })}
+                    />
+                    All sites
+                  </label>
+                  <div className="grid gap-1.5 border-t border-border pt-2 sm:grid-cols-2">
+                    {sites.map((site) => (
+                      <label
+                        key={site.id}
+                        className="flex min-h-[32px] cursor-pointer items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-[var(--accent,#5eead4)]"
+                          checked={form.siteIds.includes(site.id)}
+                          onChange={() => toggleSite(site.id)}
+                        />
+                        {site.name}
+                      </label>
                     ))}
-                  </select>
-                </Field>
-              )}
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-subtle">
+                  {form.siteIds.length === 0
+                    ? "Shown on every site's portal."
+                    : `Shown only on: ${siteNames(form.siteIds)}. Tick several sites to sell it at all of them.`}
+                </p>
+              </Field>
 
               <Field label="Category">
                 <select

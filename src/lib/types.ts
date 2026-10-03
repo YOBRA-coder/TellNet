@@ -311,6 +311,8 @@ export type AccessPointRow = {
   /** false = the router's own built-in radio (read-only, auto-detected) */
   manual: boolean;
   name: string;
+  /** number/tag physically marked on the device, e.g. "3" or "A-07" */
+  label: string | null;
   ip: string | null;
   mac: string | null;
   model: string | null;
@@ -324,6 +326,11 @@ export type AccessPointRow = {
   /** M-Pesa revenue attributed to this AP over the chosen period; null = no router port set */
   revenue: number | null;
   paidCustomers: number | null;
+<<<<<<< HEAD
+=======
+  /** switched on and reachable, but no paid customers over the chosen period */
+  noIncome: boolean;
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 };
 
 export type MapRouter = {
@@ -357,7 +364,7 @@ export type NetworkMapData = {
   allSites: Site[];
   totals: {
     routers: { online: number; warning: number; offline: number };
-    aps: { online: number; warning: number; offline: number; unknown: number };
+    aps: { online: number; warning: number; offline: number; unknown: number; noIncome: number };
     activeUsers: number;
     rxBps: number;
     txBps: number;

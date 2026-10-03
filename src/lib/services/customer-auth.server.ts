@@ -286,6 +286,100 @@ export async function signInCustomer(input: {
   return { ok: true, customerId: row.id, phone };
 }
 
+<<<<<<< HEAD
+=======
+const RESET_MAX_FAILED = 5;
+const RESET_LOCK_MINUTES = 30;
+
+/**
+ * Customer-side "I forgot my PIN/password". There is no SMS gateway, so the
+ * customer proves the number is theirs with the code from an M-Pesa message
+ * for a payment made from it (the same proof sign-up uses to claim a number
+ * that already bought as a guest). Wrong guesses are counted separately from
+ * normal sign-in so someone guessing receipts can't lock the real owner out
+ * of signing in. A customer with no paid M-Pesa history can't be verified
+ * this way and is sent to the operator.
+ */
+export async function resetCustomerSecretWithReceipt(input: {
+  phone: string;
+  transactionId: string;
+  next: string;
+  token: string;
+}): Promise<SignInResult> {
+  const phone = normalizeKenyanPhone(input.phone);
+  if (!phone) return { ok: false, error: "Enter a valid Kenyan phone number." };
+  const bad = validateSecret(input.next);
+  if (bad) return { ok: false, error: bad };
+  const code = input.transactionId.trim().toUpperCase();
+  if (!/^[A-Z0-9]{8,14}$/.test(code)) {
+    return { ok: false, error: "Enter the M-Pesa transaction code from your payment message (e.g. QGH7XXXXXX)." };
+  }
+  const generic =
+    "We couldn't verify that. Check the phone number and M-Pesa code, or ask the hotspot operator to reset your PIN.";
+
+  const sql = await getSql();
+  const row = (
+    await sql<{
+      id: string;
+      status: string;
+      registered_at: string | null;
+      reset_failed_attempts: number;
+      reset_locked_until: string | null;
+    }>`
+      select id, status, registered_at, reset_failed_attempts, reset_locked_until
+      from customers where phone = ${phone} and deleted_at is null limit 1
+    `
+  )[0];
+  if (!row) return { ok: false, error: generic };
+  if (row.status === "BLOCKED") {
+    return { ok: false, error: "This number is blocked. Please contact the hotspot operator." };
+  }
+  if (!row.registered_at) {
+    return { ok: false, error: "This number has no account yet. Create one with Sign up." };
+  }
+  if (row.reset_locked_until && new Date(row.reset_locked_until).getTime() > Date.now()) {
+    return {
+      ok: false,
+      error: "Too many wrong attempts. Try again later, or ask the hotspot operator to reset your PIN.",
+    };
+  }
+
+  const paid = await sql<{ mpesa_transaction_id: string }>`
+    select mpesa_transaction_id from payments
+    where customer_id = ${row.id} and status = 'SUCCESS' and mpesa_transaction_id is not null
+      and mpesa_transaction_id not like 'PTS-%' and mpesa_transaction_id not like 'VCH-%'
+  `;
+  const match = paid.some((p) => String(p.mpesa_transaction_id).toUpperCase() === code);
+  if (!match) {
+    const attempts = Number(row.reset_failed_attempts) + 1;
+    if (attempts >= RESET_MAX_FAILED) {
+      await sql`
+        update customers set reset_failed_attempts = 0,
+          reset_locked_until = now() + (${RESET_LOCK_MINUTES} || ' minutes')::interval
+        where id = ${row.id}
+      `;
+    } else {
+      await sql`update customers set reset_failed_attempts = ${attempts} where id = ${row.id}`;
+    }
+    return { ok: false, error: generic };
+  }
+
+  const { hash, salt } = hashSecret(input.next);
+  await sql`
+    update customers set pin_hash = ${hash}, pin_salt = ${salt},
+      failed_pin_attempts = 0, pin_locked_until = null,
+      reset_failed_attempts = 0, reset_locked_until = null,
+      device_token = ${input.token}, updated_at = now()
+    where id = ${row.id}
+  `;
+  // Everyone else signed in as this number is signed out; this device is signed in.
+  await sql`delete from customer_sessions where customer_id = ${row.id}`;
+  await startSession(input.token, row.id);
+  await logEvent("CUSTOMER", `Customer ${phone} reset their own PIN/password with an M-Pesa receipt.`);
+  return { ok: true, customerId: row.id, phone };
+}
+
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 /**
  * Operator-side reset. With `chosen` the operator sets exactly the PIN or
  * password the customer asked for (easier to remember); without it a random

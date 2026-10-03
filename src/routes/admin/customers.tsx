@@ -43,18 +43,32 @@ import {
   listPackagesAdmin,
 } from "@/lib/fn/admin";
 import { formatKes, formatRemaining, formatStamp } from "@/lib/format";
-import { formatPhoneDisplay } from "@/lib/phone";
+import { formatPhoneDisplay, parsePhoneSearch, phoneMatchesSearch } from "@/lib/phone";
+import { SiteSwitcher } from "@/components/admin/site-switcher";
+import { ALL_SITES, useAdminSite } from "@/hooks/use-admin-site";
 
 export const Route = createFileRoute("/admin/customers")({
   component: CustomersPage,
 });
+
+const PAGE_SIZE = 50;
+
+const selectCls = "h-10 w-full rounded-md border border-border bg-raised px-3 text-sm";
 
 function CustomersPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["customers"], queryFn: () => listCustomersAdmin() });
   const pkgs = useQuery({ queryKey: ["packages"], queryFn: () => listPackagesAdmin() });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [siteId] = useAdminSite();
   const [search, setSearch] = useState("");
+  const [statusF, setStatusF] = useState("ALL");
+  const [connF, setConnF] = useState("ALL");
+  const [pkgF, setPkgF] = useState("ALL");
+  const [acctF, setAcctF] = useState("ALL");
+  const [joinedF, setJoinedF] = useState("ALL");
+  const [sortBy, setSortBy] = useState("NEWEST");
+  const [page, setPage] = useState(0);
   // "Extend time" dialog: which customer, and the hours/minutes typed in.
   const [extendFor, setExtendFor] = useState<{ id: string; phone: string } | null>(null);
   const [extHours, setExtHours] = useState("1");
@@ -72,17 +86,86 @@ function CustomersPage() {
   };
   const selected = q.data?.find((r) => r.customer.id === openId);
 
+  const filtersActive =
+    search.trim() !== "" ||
+    statusF !== "ALL" ||
+    connF !== "ALL" ||
+    pkgF !== "ALL" ||
+    acctF !== "ALL" ||
+    joinedF !== "ALL";
+  const clearFilters = () => {
+    setSearch("");
+    setStatusF("ALL");
+    setConnF("ALL");
+    setPkgF("ALL");
+    setAcctF("ALL");
+    setJoinedF("ALL");
+    setPage(0);
+  };
+
+  const inSite = useMemo(
+    () => (q.data ?? []).filter((r) => siteId === ALL_SITES || r.siteId === siteId),
+    [q.data, siteId],
+  );
+
   const filtered = useMemo(() => {
-    const rows = q.data ?? [];
-    // Any format works: 07…, 7…, 254… or +254… (leading 0/254 is ignored).
-    const core = (v: string) => {
-      const d = v.replace(/\D/g, "");
-      return d.startsWith("254") ? d.slice(3) : d.startsWith("0") ? d.slice(1) : d;
-    };
-    const needle = core(search);
-    if (!needle) return rows;
-    return rows.filter((r) => core(r.customer.phone).includes(needle));
-  }, [q.data, search]);
+    const now = Date.now();
+    const find = parsePhoneSearch(search);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const joinedSince =
+      joinedF === "TODAY"
+        ? startOfToday.getTime()
+        : joinedF === "7D"
+          ? now - 7 * 86_400_000
+          : joinedF === "30D"
+            ? now - 30 * 86_400_000
+            : null;
+
+    const rows = inSite.filter((r) => {
+      // Search: 07… / 7… / 254… phone (07… matches numbers STARTING with 07),
+      // or an M-Pesa receipt code when it contains letters.
+      if (find.kind === "text") {
+        if (!(r.mpesaTransactionId ?? "").toUpperCase().includes(find.text)) return false;
+      } else if (!phoneMatchesSearch(r.customer.phone, find)) {
+        return false;
+      }
+
+      const expiry = r.pack ? new Date(r.pack.expiryTime).getTime() : 0;
+      const running = Boolean(r.pack && r.pack.status === "ACTIVE" && expiry > now);
+      if (statusF === "BLOCKED" && r.customer.status !== "BLOCKED") return false;
+      if (statusF === "ACTIVE" && !running) return false;
+      if (statusF === "QUEUED" && r.queuedCount === 0) return false;
+      if (statusF === "EXPIRED" && !(r.pack && !running && r.queuedCount === 0)) return false;
+      if (statusF === "AWAITING" && r.pack?.activationStatus !== "ACTIVATION_FAILED") return false;
+      if (statusF === "NONE" && r.pack) return false;
+
+      if (connF === "ONLINE" && r.connectionStatus !== "ACTIVE") return false;
+      if (connF === "OFFLINE" && r.connectionStatus === "ACTIVE") return false;
+      if (pkgF !== "ALL" && r.pack?.packageId !== pkgF) return false;
+      if (acctF === "REGISTERED" && !r.registered) return false;
+      if (acctF === "GUEST" && r.registered) return false;
+      if (joinedSince != null && new Date(r.customer.createdAt).getTime() < joinedSince) return false;
+      return true;
+    });
+
+    if (sortBy === "EXPIRING") {
+      const key = (r: (typeof rows)[number]) => {
+        const t = r.pack ? new Date(r.pack.expiryTime).getTime() : Number.POSITIVE_INFINITY;
+        return t > now ? t : Number.POSITIVE_INFINITY; // running packages first, soonest expiry on top
+      };
+      rows.sort((a, b) => key(a) - key(b));
+    } else if (sortBy === "PACKAGES") {
+      rows.sort((a, b) => b.packageCount - a.packageCount);
+    } else if (sortBy === "PHONE") {
+      rows.sort((a, b) => a.customer.phone.localeCompare(b.customer.phone));
+    }
+    return rows;
+  }, [inSite, search, statusF, connF, pkgF, acctF, joinedF, sortBy]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visibleRows = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   const history = useQuery({
     queryKey: ["customer-history", openId],
@@ -127,24 +210,133 @@ function CustomersPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-3xl font-semibold tracking-tight">
-          Customers
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Disconnect, block, extend, release a bound device or retry activation
-          without touching the ISP.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">
+            Customers
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Disconnect, block, extend, release a bound device or retry activation
+            without touching the ISP.
+          </p>
+        </div>
+        <SiteSwitcher />
       </div>
-      <div className="relative max-w-xs">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search phone number…"
-          className="pl-9"
-        />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="relative sm:col-span-2">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+          <Input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Search phone (07…) or M-Pesa code…"
+            className="pl-9"
+            inputMode="search"
+          />
+        </div>
+        <select
+          aria-label="Status"
+          className={selectCls}
+          value={statusF}
+          onChange={(e) => {
+            setStatusF(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="ALL">Any status</option>
+          <option value="ACTIVE">Active package</option>
+          <option value="QUEUED">Has queued package</option>
+          <option value="EXPIRED">Expired</option>
+          <option value="AWAITING">Awaiting activation</option>
+          <option value="NONE">No package yet</option>
+          <option value="BLOCKED">Blocked</option>
+        </select>
+        <select
+          aria-label="Connection"
+          className={selectCls}
+          value={connF}
+          onChange={(e) => {
+            setConnF(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="ALL">Online or offline</option>
+          <option value="ONLINE">Online now</option>
+          <option value="OFFLINE">Offline</option>
+        </select>
+        <select
+          aria-label="Package"
+          className={selectCls}
+          value={pkgF}
+          onChange={(e) => {
+            setPkgF(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="ALL">Any package</option>
+          {(pkgs.data ?? []).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.status === "INACTIVE" ? " (inactive)" : ""}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Account"
+          className={selectCls}
+          value={acctF}
+          onChange={(e) => {
+            setAcctF(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="ALL">Guests and members</option>
+          <option value="REGISTERED">Members (have an account)</option>
+          <option value="GUEST">Guests (no account)</option>
+        </select>
+        <select
+          aria-label="Joined"
+          className={selectCls}
+          value={joinedF}
+          onChange={(e) => {
+            setJoinedF(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="ALL">Joined any time</option>
+          <option value="TODAY">Joined today</option>
+          <option value="7D">Joined last 7 days</option>
+          <option value="30D">Joined last 30 days</option>
+        </select>
+        <select
+          aria-label="Sort"
+          className={selectCls}
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+        >
+          <option value="NEWEST">Newest first</option>
+          <option value="EXPIRING">Expiring soonest</option>
+          <option value="PACKAGES">Most packages bought</option>
+          <option value="PHONE">Phone number</option>
+        </select>
       </div>
+<<<<<<< HEAD
+=======
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+        <span>
+          Showing {filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–
+          {Math.min((safePage + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+          {filtered.length !== inSite.length ? ` (${inSite.length} total)` : " customers"}
+        </span>
+        {filtersActive ? (
+          <Button size="sm" variant="ghost" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
@@ -165,11 +357,15 @@ function CustomersPage() {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={10} className="py-8 text-center text-sm text-muted">
-                  No customer matches "{search}".
+                  {filtersActive ? "No customer matches these filters." : "No customers yet."}
                 </TableCell>
               </TableRow>
             ) : null}
+<<<<<<< HEAD
             {filtered.map((row) => (
+=======
+            {visibleRows.map((row) => (
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
               <TableRow key={row.customer.id}  className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
                   {formatPhoneDisplay(row.customer.phone)}
@@ -337,6 +533,30 @@ function CustomersPage() {
           </TableBody>
         </Table>
       </div>
+
+      {pageCount > 1 ? (
+        <div className="flex items-center justify-center gap-3 text-sm">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={safePage === 0}
+            onClick={() => setPage(safePage - 1)}
+          >
+            Previous
+          </Button>
+          <span className="tabular-nums text-muted">
+            Page {safePage + 1} of {pageCount}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={safePage >= pageCount - 1}
+            onClick={() => setPage(safePage + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      ) : null}
 
       <Sheet open={Boolean(selected)} onOpenChange={() => setOpenId(null)}>
         <SheetContent className="pb-10">

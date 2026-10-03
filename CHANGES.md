@@ -1,5 +1,43 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
 
+<<<<<<< HEAD
+=======
+- **RADIUS speed cap is per site**: Access-Accept now uses the customer's site ISP lines for the per-user cap, matching activation (it used all ISPs).
+
+- **Multi-router provisioning**: hotspot logins are now created, disabled and disconnected on the router(s) of the customer's SITE (all routers
+  at that site; the primary router if the site has none), not only the primary. Succeeds if at least one router took it. Applies to activation,
+  expiry, block, admin disconnect. "Closed for the night" is checked on the customer's site router. Speed/seat limits and the seat count are
+  now per site (that site's ISP lines, and that site's active users). Network -> Sites shows the `login.html` redirect to put on each site's router.
+  RADIUS setups are unchanged.
+
+- **Site-aware portal (package visibility fix)**: one rule (`isPackageSoldAtSite`, `src/lib/services/sites.server.ts`) now drives the package list,
+  payment and points redemption: `package_sites` rows decide; no rows = every site. A customer only sees (and can only buy) packages sold at the site
+  of the router they came in through (`/portal?site=<slug>`). Fixes: stale `packages.site_id` could show a package at a site it was un-ticked from;
+  paying with no/unknown `?site=` used the package's first site instead of the main site; the portal loader ignored the remembered site when the
+  `?site=` param was dropped by navigation (wrong packages flashed); `listPortalPackages` returned every package; "internet down" used every ISP
+  instead of the ones serving the visitor's site; a stale/inactive slug is now forgotten on the device (`siteUnknown`).
+
+- **Customer forgot PIN/password** (`/portal/auth` -> "Forgot your PIN or password?"): the customer enters their phone number, an
+  M-Pesa transaction code from a payment made with it, and a new PIN/password. Voucher/points references don't count. Wrong codes are
+  counted separately from sign-in (5 wrong -> 30 min lock on resets only, normal sign-in is unaffected); a successful reset signs
+  every other device out and this one in. Numbers with no paid M-Pesa history still need the operator's **Reset PIN**.
+- **Operator Customers page**: filters for status (active / queued / expired / awaiting activation / no package / blocked), online/offline,
+  package, member vs guest, joined date, sort (newest / expiring soonest / most packages / phone), site switcher, paging (50/page),
+  "Clear filters" and a "Showing x of y" counter. Search takes 07…, 7…, 254… or an M-Pesa code; "07" matches numbers that START with 07.
+- **Payments search by phone fixed**: numbers are stored as 2547XXXXXXXX, so typing 07… never matched. 07…/7…/254…/+254… now all work
+  (leading 07 matches from the start of the number), and letters search the M-Pesa code.
+- **Reports**: "Today / This week / This month" now follow Kenya time (APP_TIMEZONE) instead of UTC (they started 3 hours late, so sales after
+  midnight showed under yesterday until 03:00; the Dashboard "today" and the Payments date filter had the same problem). Daily chart is zero-filled
+  and has 7/14/30/90 day ranges; added comparison vs yesterday / last week / last month, failed/pending counts, free (voucher/points) counts,
+  payment success rate, busiest hours, revenue by site and Export CSV.
+- **Access points**: new **AP number** (the number/tag marked on the device, unique) shown as #3 next to the AP name everywhere; the name is
+  required and explained in the form. An AP that is on but has no paying customers in the chosen period shows a yellow **"On · no income"**
+  (new APs get 24 h; needs the router port set; not shown until the system has measured revenue for some AP). It does not change router health.
+  Migration `0030_reset_ap_label_package_sites.sql`.
+- **Packages: several sites at once** (Packages -> New/Edit -> "Sites where this package is sold"): tick any number of sites, or "All sites".
+  Stored in `package_sites` (existing single-site packages are migrated). The portal shows the package on each ticked site; Site map counts follow.
+
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 - **Opening hours per MikroTik** (migration `0029_hours_ap_revenue.sql`; Network → router → Opening hours): weekly schedule, several
   time windows per day (past-midnight windows supported), East Africa Time (override with `APP_TIMEZONE`). When closed, every TelNet
   hotspot user on that router is disabled and active sessions are kicked (your own router users are never touched); on opening,

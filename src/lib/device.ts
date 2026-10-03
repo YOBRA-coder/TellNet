@@ -70,3 +70,13 @@ export function readSite(): string | undefined {
     return undefined;
   }
 }
+
+/** Forget a remembered site (its link went stale or the site was switched off). */
+export function clearSite(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(SITE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}

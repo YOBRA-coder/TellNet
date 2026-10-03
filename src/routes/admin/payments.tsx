@@ -113,9 +113,10 @@ function PaymentsPage() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Input
-          placeholder="Filter phone"
+          placeholder="Phone (07…) or M-Pesa code"
+          inputMode="search"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={(e) => setPhone(e.target.value.trimStart())}
         />
         <Select value={period} onValueChange={setPeriod}>
           <SelectTrigger>

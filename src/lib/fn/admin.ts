@@ -37,12 +37,18 @@ import { getRadiusConfig } from "@/lib/services/radius.server";
 import { apRevenue, refreshNetworkLive } from "@/lib/services/network-live.server";
 import { getEffectiveCapacity } from "@/lib/services/capacity.server";
 import { recordProbeResult } from "@/lib/services/outage.server";
+<<<<<<< HEAD
 import { applyOperatingHours, toRouterHours } from "@/lib/services/hours.server";
+=======
+import { applyOperatingHours, toRouterHours, TZ } from "@/lib/services/hours.server";
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 import {
   getRadiusListenerStatus,
   syncRadiusListener,
 } from "@/lib/services/radius-listener.server";
 import { getSettings, logEvent } from "@/lib/services/settings.server";
+import { getPeriodStarts } from "@/lib/services/periods.server";
+import { parsePhoneSearch } from "@/lib/phone";
 import {
   mapCustomer,
   mapCustomerPackage,
@@ -77,6 +83,7 @@ export const getDashboard = createServerFn({ method: "POST" })
     void tickLiveUsage().catch(() => {});
 
     const sql = await getSql();
+    const ps = await getPeriodStarts();
     const [settings, router, today, counts, ispsRaw, mikrotiksRaw, eventsRaw, recentRaw] =
       await Promise.all([
         getSettings(),
@@ -100,7 +107,7 @@ export const getDashboard = createServerFn({ method: "POST" })
             count(*) filter (where status = 'SUCCESS' and mpesa_transaction_id like 'VCH-%')::int as vouchers,
             coalesce(sum(amount) filter (where status = 'SUCCESS' and mpesa_transaction_id like 'VCH-%'), 0)::int as voucher_value
           from payments
-          where created_at >= date_trunc('day', now())
+          where created_at >= ${ps.dayStart}::timestamptz
             and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
         `,
         sql<{
@@ -204,7 +211,8 @@ export const listCustomersAdmin = createServerFn({ method: "GET" })
     const sql = await getSql();
     const rows = await sql<SqlRow>`
       select
-        c.id, c.phone, c.status, c.created_at,
+        c.id, c.phone, c.status, c.created_at, c.site_id,
+        (c.registered_at is not null) as registered,
         cp.id as cp_id, cp.package_id, cp.payment_id, cp.start_time, cp.expiry_time,
         cp.speed_limit_kbps, cp.status as pkg_status, cp.activation_status,
         cp.mikrotik_username, cp.bound_device_token, cp.last_resumed_at, pkg.name as package_name,
@@ -243,6 +251,8 @@ export const listCustomersAdmin = createServerFn({ method: "GET" })
         ? String(row.mpesa_transaction_id)
         : null,
       connectionStatus: row.connection_status ? String(row.connection_status) : "OFFLINE",
+      registered: row.registered === true || row.registered === "t" || row.registered === "true",
+      siteId: row.site_id ? String(row.site_id) : "site_default",
       packageCount: asNumber(row.package_count),
       queuedCount: asNumber(row.queued_count),
       deviceCount: asNumber(row.device_count),
@@ -431,14 +441,15 @@ export const customerAction = createServerFn({ method: "POST" })
       for (const s of ses) await disconnectSession(s.id);
       // Also kick the login on the router itself, in case the local session
       // record is missing or stale.
-      const user = await sql<{ mikrotik_username: string | null }>`
-        select mikrotik_username from customer_packages
-        where customer_id = ${data.customerId} and status = 'ACTIVE' and mikrotik_username is not null
-        order by expiry_time desc limit 1
+      const user = await sql<{ mikrotik_username: string | null; site_id: string | null }>`
+        select cp.mikrotik_username, c.site_id from customer_packages cp
+        join customers c on c.id = cp.customer_id
+        where cp.customer_id = ${data.customerId} and cp.status = 'ACTIVE' and cp.mikrotik_username is not null
+        order by cp.expiry_time desc limit 1
       `;
       let routerKick = false;
       if (user[0]?.mikrotik_username) {
-        routerKick = await disconnectUser(user[0].mikrotik_username).then(
+        routerKick = await disconnectUser(user[0].mikrotik_username, user[0].site_id ?? "site_default").then(
           () => true,
           () => false,
         );
@@ -598,9 +609,20 @@ export const listPackagesAdmin = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
     const sql = await getSql();
-    return (await sql<SqlRow>`select * from packages order by sort_order, price`).map(
-      mapPackage,
-    );
+    const rows = await sql<SqlRow>`
+      select p.*,
+        (select string_agg(ps.site_id, ',' order by ps.site_id)
+           from package_sites ps where ps.package_id = p.id) as site_ids
+      from packages p
+      order by p.sort_order, p.price
+    `;
+    return rows.map((row) => {
+      const pkg = mapPackage(row);
+      const ids = row.site_ids ? String(row.site_ids).split(",").filter(Boolean) : [];
+      // Older rows that only have packages.site_id still count as one site.
+      const siteIds = ids.length > 0 ? ids : pkg.siteId ? [pkg.siteId] : [];
+      return { ...pkg, siteIds };
+    });
   });
 
 export const savePackage = createServerFn({ method: "POST" })
@@ -617,6 +639,8 @@ export const savePackage = createServerFn({ method: "POST" })
         dataLimitMb: z.number().int().min(1).nullable(),
         status: z.enum(["ACTIVE", "INACTIVE"]),
         siteId: z.string().nullable().optional(),
+        /** Sites this package is sold at. Empty = all sites. */
+        siteIds: z.array(z.string()).max(100).optional(),
         badge: z.enum(["MOST_POPULAR", "BEST_VALUE"]).nullable().optional(),
         durationKind: z.enum(["HOURLY", "DAILY", "WEEKLY", "MONTHLY"]).optional(),
         pointsCost: z.number().int().min(1).nullable().optional(),
@@ -638,12 +662,20 @@ export const savePackage = createServerFn({ method: "POST" })
             ? "WEEKLY"
             : "MONTHLY");
     const maxDevices = data.maxDevices === 2 ? 2 : 1;
+    // Keep only real sites, no duplicates. Empty list = sold everywhere.
+    const wanted = Array.from(new Set(data.siteIds ?? (data.siteId ? [data.siteId] : [])));
+    const siteIds: string[] = [];
+    for (const sid of wanted) {
+      const hit = await sql<{ id: string }>`select id from sites where id = ${sid} limit 1`;
+      if (hit[0]) siteIds.push(hit[0].id);
+    }
+    const primarySite = siteIds[0] ?? null;
     await sql`
       insert into packages (
         id, name, price, duration_minutes, download_kbps, upload_kbps, data_limit_mb, status, sort_order, site_id, badge, duration_kind, points_cost, category, max_devices
       ) values (
         ${id}, ${data.name}, ${data.price}, ${data.durationMinutes}, ${data.downloadKbps},
-        ${data.uploadKbps}, ${data.dataLimitMb}, ${data.status}, 50, ${data.siteId ?? null}, ${data.badge ?? null}, ${durationKind}, ${data.pointsCost ?? null}, ${data.category ?? "STANDARD"}, ${maxDevices}
+        ${data.uploadKbps}, ${data.dataLimitMb}, ${data.status}, 50, ${primarySite}, ${data.badge ?? null}, ${durationKind}, ${data.pointsCost ?? null}, ${data.category ?? "STANDARD"}, ${maxDevices}
       )
       on conflict (id) do update set
         name = excluded.name,
@@ -661,6 +693,13 @@ export const savePackage = createServerFn({ method: "POST" })
         max_devices = excluded.max_devices,
         updated_at = now()
     `;
+    await sql`delete from package_sites where package_id = ${id}`;
+    for (const sid of siteIds) {
+      await sql`
+        insert into package_sites (package_id, site_id) values (${id}, ${sid})
+        on conflict do nothing
+      `;
+    }
     return { ok: true as const, id };
   });
 
@@ -688,19 +727,32 @@ export const listPaymentsAdmin = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const ps = await getPeriodStarts();
+    // Phone search: "07…", "7…", "254…" and "+254…" all work. Numbers are stored
+    // as 2547XXXXXXXX, so a leading 0 is turned into 254 and matched from the
+    // START of the number; anything with letters is searched as an M-Pesa code.
+    const find = parsePhoneSearch(data.phone ?? "");
+    const phonePrefix = find.kind === "prefix" ? find.digits + "%" : null;
+    const phoneContains = find.kind === "contains" ? "%" + find.digits + "%" : null;
+    const textLike = find.kind === "text" ? "%" + find.text + "%" : null;
     const rows = await sql<SqlRow>`
       select p.*, pkg.name as package_name
       from payments p
       join packages pkg on pkg.id = p.package_id
-      where (${data.phone ?? null}::text is null or p.phone like ${"%" + (data.phone ?? "") + "%"})
+      where (
+          (${phonePrefix}::text is null and ${phoneContains}::text is null and ${textLike}::text is null)
+          or regexp_replace(p.phone, '\\D', '', 'g') like ${phonePrefix}::text
+          or regexp_replace(p.phone, '\\D', '', 'g') like ${phoneContains}::text
+          or upper(coalesce(p.mpesa_transaction_id, '')) like ${textLike}::text
+        )
         and (${data.packageId ?? null}::text is null or p.package_id = ${data.packageId ?? ""})
         and (${data.status ?? null}::text is null or p.status = ${data.status ?? ""})
         and (${data.activationStatus ?? null}::text is null or p.activation_status = ${data.activationStatus ?? ""})
         and (
           ${data.period ?? "ALL"} = 'ALL'
-          or (${data.period ?? "ALL"} = 'TODAY' and p.created_at >= date_trunc('day', now()))
-          or (${data.period ?? "ALL"} = 'WEEK' and p.created_at >= date_trunc('week', now()))
-          or (${data.period ?? "ALL"} = 'MONTH' and p.created_at >= date_trunc('month', now()))
+          or (${data.period ?? "ALL"} = 'TODAY' and p.created_at >= ${ps.dayStart}::timestamptz)
+          or (${data.period ?? "ALL"} = 'WEEK' and p.created_at >= ${ps.weekStart}::timestamptz)
+          or (${data.period ?? "ALL"} = 'MONTH' and p.created_at >= ${ps.monthStart}::timestamptz)
         )
       order by p.created_at desc
       limit 200
@@ -747,81 +799,182 @@ export const kickLiveUser = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+type ReportPeriod = {
+  revenue: number;
+  tx: number;
+  /** successful M-Pesa payments (real money) */
+  paid: number;
+  failed: number;
+  pending: number;
+  /** free redemptions: vouchers and loyalty points (never counted as revenue) */
+  vouchers: number;
+  points: number;
+  /** every package handed out: paid + vouchers + points */
+  sold: number;
+};
+
 export const getReports = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((data: unknown) => siteParam.parse(data))
+  .validator((data: unknown) =>
+    z
+      .object({
+        siteId: z.string().optional(),
+        days: z.number().int().min(7).max(90).optional(),
+      })
+      .optional()
+      .parse(data),
+  )
   .handler(async ({ data: input }) => {
     const site = normSite(input?.siteId);
+    const days = input?.days ?? 14;
     const sql = await getSql();
-    const today = await sql<{
-      revenue: number;
-      tx: number;
-      success: number;
-      failed: number;
-      sold: number;
-    }>`
-      select
-        coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
-        count(*)::int as tx,
-        count(*) filter (where status = 'SUCCESS')::int as success,
-        count(*) filter (where status in ('FAILED','CANCELLED'))::int as failed,
-        count(*) filter (where status = 'SUCCESS')::int as sold
-      from payments where created_at >= date_trunc('day', now())
-        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
-    `;
-    const week = await sql<{ revenue: number; tx: number }>`
-      select
-        coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
-        count(*)::int as tx
-      from payments where created_at >= date_trunc('week', now())
-        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
-    `;
-    const month = await sql<{ revenue: number; tx: number }>`
-      select
-        coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
-        count(*)::int as tx
-      from payments where created_at >= date_trunc('month', now())
-        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
-    `;
-    const best = await sql<{ name: string; sold: number; revenue: number }>`
+    const ps = await getPeriodStarts();
+    const tz = TZ;
+
+    // Money = successful M-Pesa only. Voucher (VCH-) and points (PTS-) redemptions
+    // are free packages and are reported separately, never as revenue.
+    const period = async (from: string, to: string | null): Promise<ReportPeriod> => {
+      const r = (
+        await sql<Record<string, unknown>>`
+          select
+            coalesce(sum(amount) filter (where status = 'SUCCESS'
+              and coalesce(mpesa_transaction_id, '') not like 'PTS-%'
+              and coalesce(mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue,
+            count(*)::int as tx,
+            count(*) filter (where status = 'SUCCESS'
+              and coalesce(mpesa_transaction_id, '') not like 'PTS-%'
+              and coalesce(mpesa_transaction_id, '') not like 'VCH-%')::int as paid,
+            count(*) filter (where status in ('FAILED', 'CANCELLED'))::int as failed,
+            count(*) filter (where status = 'PENDING')::int as pending,
+            count(*) filter (where status = 'SUCCESS' and mpesa_transaction_id like 'VCH-%')::int as vouchers,
+            count(*) filter (where status = 'SUCCESS' and mpesa_transaction_id like 'PTS-%')::int as points,
+            count(*) filter (where status = 'SUCCESS')::int as sold
+          from payments
+          where created_at >= ${from}::timestamptz
+            and (${to}::timestamptz is null or created_at < ${to}::timestamptz)
+            and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
+        `
+      )[0];
+      return {
+        revenue: asNumber(r.revenue),
+        tx: asNumber(r.tx),
+        paid: asNumber(r.paid),
+        failed: asNumber(r.failed),
+        pending: asNumber(r.pending),
+        vouchers: asNumber(r.vouchers),
+        points: asNumber(r.points),
+        sold: asNumber(r.sold),
+      };
+    };
+
+    const perPackage = (from: string) => sql<{ name: string; sold: number; revenue: number }>`
       select pkg.name, count(*)::int as sold,
-             coalesce(sum(p.amount) filter (where coalesce(p.mpesa_transaction_id, '') not like 'PTS-%' and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue
+             coalesce(sum(p.amount) filter (where coalesce(p.mpesa_transaction_id, '') not like 'PTS-%'
+               and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue
       from payments p join packages pkg on pkg.id = p.package_id
-      where p.status = 'SUCCESS' and p.created_at >= date_trunc('week', now())
+      where p.status = 'SUCCESS' and p.created_at >= ${from}::timestamptz
         and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
       group by pkg.name
-      order by sold desc
+      order by revenue desc, sold desc
     `;
-    const monthPerf = await sql<{ name: string; sold: number; revenue: number }>`
-      select pkg.name, count(*)::int as sold,
-             coalesce(sum(p.amount) filter (where coalesce(p.mpesa_transaction_id, '') not like 'PTS-%' and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue
-      from payments p join packages pkg on pkg.id = p.package_id
-      where p.status = 'SUCCESS' and p.created_at >= date_trunc('month', now())
-        and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
-      group by pkg.name
-      order by revenue desc
-    `;
-    const daily = await sql<{ day: string; revenue: number; tx: number }>`
-      select to_char(date_trunc('day', created_at), 'YYYY-MM-DD') as day,
-             coalesce(sum(case when status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%' then amount else 0 end), 0)::int as revenue,
-             count(*) filter (where status = 'SUCCESS')::int as tx
-      from payments
-      where created_at >= now() - interval '14 days'
-        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
-      group by 1
-      order by 1
-    `;
+
+    const [today, yesterday, week, prevWeek, month, prevMonth, bestWeekRaw, monthPerfRaw, daily, hourly, bySite] =
+      await Promise.all([
+        period(ps.dayStart, null),
+        period(ps.prevDayStart, ps.dayStart),
+        period(ps.weekStart, null),
+        period(ps.prevWeekStart, ps.weekStart),
+        period(ps.monthStart, null),
+        period(ps.prevMonthStart, ps.monthStart),
+        perPackage(ps.weekStart),
+        perPackage(ps.monthStart),
+        // One row per calendar day (business time zone), zero-filled so quiet days still show.
+        sql<{ day: string; label: string; revenue: number; tx: number }>`
+          with d as (
+            select g::date as day
+            from generate_series(
+              (now() at time zone ${tz}::text)::date - (${days}::int - 1),
+              (now() at time zone ${tz}::text)::date,
+              interval '1 day'
+            ) g
+          )
+          select to_char(d.day, 'YYYY-MM-DD') as day,
+                 to_char(d.day, 'DD Mon') as label,
+                 coalesce(sum(p.amount) filter (where p.status = 'SUCCESS'
+                   and coalesce(p.mpesa_transaction_id, '') not like 'PTS-%'
+                   and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue,
+                 count(p.id) filter (where p.status = 'SUCCESS')::int as tx
+          from d
+          left join payments p
+            on (p.created_at at time zone ${tz}::text)::date = d.day
+           and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
+          group by d.day
+          order by d.day
+        `,
+        // Busiest hours (last 30 days, successful M-Pesa).
+        sql<{ hour: number; revenue: number; tx: number }>`
+          select extract(hour from p.created_at at time zone ${tz}::text)::int as hour,
+                 coalesce(sum(p.amount), 0)::int as revenue,
+                 count(*)::int as tx
+          from payments p
+          where p.status = 'SUCCESS'
+            and coalesce(p.mpesa_transaction_id, '') not like 'PTS-%'
+            and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'
+            and p.created_at >= now() - interval '30 days'
+            and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
+          group by 1
+          order by 1
+        `,
+        // This month per site (only meaningful when "All sites" is selected).
+        sql<{ site_id: string; name: string; revenue: number; paid: number }>`
+          select s.id as site_id, s.name,
+                 coalesce(sum(p.amount) filter (where p.status = 'SUCCESS'
+                   and coalesce(p.mpesa_transaction_id, '') not like 'PTS-%'
+                   and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'), 0)::int as revenue,
+                 count(p.id) filter (where p.status = 'SUCCESS'
+                   and coalesce(p.mpesa_transaction_id, '') not like 'PTS-%'
+                   and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%')::int as paid
+          from sites s
+          left join payments p
+            on coalesce(p.site_id, 'site_default') = s.id
+           and p.created_at >= ${ps.monthStart}::timestamptz
+          group by s.id, s.name
+          order by revenue desc, s.name
+        `,
+      ]);
+
+    const hours = Array.from({ length: 24 }, (_, h) => {
+      const row = hourly.find((x) => Number(x.hour) === h);
+      return { hour: h, revenue: asNumber(row?.revenue), tx: asNumber(row?.tx) };
+    });
+
     return {
-      today: today[0],
-      week: week[0],
-      month: month[0],
-      bestWeek: best,
-      monthPerf,
+      generatedAt: new Date().toISOString(),
+      timezone: tz,
+      days,
+      today,
+      yesterday,
+      week,
+      prevWeek,
+      month,
+      prevMonth,
+      bestWeek: bestWeekRaw.map((r) => ({ name: String(r.name), sold: asNumber(r.sold), revenue: asNumber(r.revenue) })),
+      monthPerf: monthPerfRaw.map((r) => ({ name: String(r.name), sold: asNumber(r.sold), revenue: asNumber(r.revenue) })),
       daily: daily.map((d) => ({
         day: String(d.day),
+        label: String(d.label),
         revenue: asNumber(d.revenue),
         tx: asNumber(d.tx),
       })),
+      hours,
+      bySite: site
+        ? []
+        : bySite.map((r) => ({
+            siteId: String(r.site_id),
+            name: String(r.name),
+            revenue: asNumber(r.revenue),
+            paid: asNumber(r.paid),
+          })),
     };
   });
 
@@ -1671,8 +1824,16 @@ export const getSiteMap = createServerFn({ method: "GET" })
       sql<SqlRow>`select * from sites order by (id = 'site_default') desc, name`,
       sql<SqlRow>`select id, name, status, is_primary, site_id from mikrotiks order by is_primary desc, name`,
       sql<SqlRow>`select id, name, type, status, mikrotik_id, site_id from isps order by sort_order`,
-      sql<SqlRow>`select id, name, status, price, site_id from packages order by sort_order, price`,
+      sql<SqlRow>`
+        select p.id, p.name, p.status, p.price, p.site_id,
+          (select string_agg(ps.site_id, ',') from package_sites ps where ps.package_id = p.id) as site_ids
+        from packages p order by p.sort_order, p.price
+      `,
     ]);
+    const pkgSites = (p: SqlRow): string[] => {
+      const ids = p.site_ids ? String(p.site_ids).split(",").filter(Boolean) : [];
+      return ids.length > 0 ? ids : p.site_id ? [String(p.site_id)] : [];
+    };
     const norm = (v: unknown) => (v ? String(v) : "site_default");
     return {
       sites: sites.map((row) => {
@@ -1695,12 +1856,12 @@ export const getSiteMap = createServerFn({ method: "GET" })
             .filter((i) => !i.mikrotik_id && norm(i.site_id) === site.id)
             .map((i) => ({ id: String(i.id), name: String(i.name), type: String(i.type), status: String(i.status) })),
           packages: packages
-            .filter((p) => p.site_id && String(p.site_id) === site.id)
+            .filter((p) => pkgSites(p).includes(site.id))
             .map((p) => ({ id: String(p.id), name: String(p.name), status: String(p.status), price: Number(p.price) })),
         };
       }),
       globalPackages: packages
-        .filter((p) => !p.site_id)
+        .filter((p) => pkgSites(p).length === 0)
         .map((p) => ({ id: String(p.id), name: String(p.name), status: String(p.status), price: Number(p.price) })),
     };
   });
@@ -1761,33 +1922,52 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
     if (memPct != null && memPct >= 90) reasons.push(`Memory at ${memPct}%`);
     for (const i of isps) if (i.status !== "ONLINE") reasons.push(`${i.name} is ${i.status.toLowerCase()}`);
 
+    // Revenue can only be judged once the system has measured *some* AP in this
+    // period; right after deploy every AP would otherwise look like it earns nothing.
+    const canJudgeIncome = apMoney.size > 0;
     const manual: AccessPointRow[] = apsRaw
       .filter((a) => String(a.mikrotik_id) === mt.id)
-      .map((a) => ({
+      .map((a) => {
+        const status = (["ONLINE", "WARNING", "OFFLINE", "UNKNOWN"].includes(String(a.status)) ? String(a.status) : "UNKNOWN") as HealthState;
+        const revenue = a.port ? (apMoney.get(String(a.id))?.revenue ?? 0) : null;
+        const ageMs = a.created_at ? Date.now() - new Date(iso(a.created_at)).getTime() : 0;
+        return {
         id: String(a.id),
         manual: true,
         name: String(a.name),
+        label: a.label ? String(a.label) : null,
         ip: a.ip_address ? String(a.ip_address) : null,
         mac: a.mac_address ? String(a.mac_address) : null,
         model: a.model ? String(a.model) : null,
         port: a.port ? String(a.port) : null,
         notes: a.notes ? String(a.notes) : null,
-        status: (["ONLINE", "WARNING", "OFFLINE", "UNKNOWN"].includes(String(a.status)) ? String(a.status) : "UNKNOWN") as HealthState,
+        status,
         latencyMs: a.latency_ms == null ? null : Number(a.latency_ms),
         clients: a.clients == null ? null : Number(a.clients),
         signalDbm: null,
         checkedAt: a.checked_at ? iso(a.checked_at) : null,
         // revenue can only be attributed when we know which router port the AP is on
+<<<<<<< HEAD
         revenue: a.port ? (apMoney.get(String(a.id))?.revenue ?? 0) : null,
         paidCustomers: a.port ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
       }));
+=======
+        revenue,
+        paidCustomers: a.port ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
+        // a brand-new AP gets a day before it is flagged
+        noIncome: canJudgeIncome && revenue === 0 && (status === "ONLINE" || status === "WARNING") && ageMs >= 24 * 3600_000,
+        };
+      });
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
     // The router's own wifi radios show up automatically (real signal data).
     const radios: AccessPointRow[] = (live?.radios ?? []).map((r) => {
       const p = live!.ports.find((x) => x.name === r.name);
+      const radioRevenue = apMoney.get(`radio:${mt.id}:${r.name}`)?.revenue ?? 0;
       return {
         id: `radio:${mt.id}:${r.name}`,
         manual: false,
         name: `${mt.name} · ${r.name}`,
+        label: null,
         ip: null,
         mac: null,
         model: "Built-in radio",
@@ -1800,6 +1980,10 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
         checkedAt: live!.at,
         revenue: apMoney.get(`radio:${mt.id}:${r.name}`)?.revenue ?? 0,
         paidCustomers: apMoney.get(`radio:${mt.id}:${r.name}`)?.customers ?? 0,
+<<<<<<< HEAD
+=======
+        noIncome: canJudgeIncome && radioRevenue === 0 && Boolean(p?.running),
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
       };
     });
     const aps = [...radios, ...manual];
@@ -1843,7 +2027,7 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
       identity: mt.identity,
       live,
       isps,
-      aps: unreachable ? aps.map((a) => ({ ...a, status: "UNKNOWN" as HealthState })) : aps,
+      aps: unreachable ? aps.map((a) => ({ ...a, status: "UNKNOWN" as HealthState, noIncome: false })) : aps,
     };
   });
 
@@ -1866,6 +2050,7 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
         warning: aps.filter((a) => a.status === "WARNING").length,
         offline: aps.filter((a) => a.status === "OFFLINE").length,
         unknown: aps.filter((a) => a.status === "UNKNOWN").length,
+        noIncome: aps.filter((a) => a.noIncome).length,
       },
       activeUsers: visible.reduce((s, r) => s + (r.live?.activeUsers ?? 0), 0),
       rxBps: visible.reduce((s, r) => s + (r.live?.rxBps ?? 0), 0),
@@ -1919,7 +2104,9 @@ export const saveAccessPoint = createServerFn({ method: "POST" })
       .object({
         id: z.string().optional(),
         mikrotikId: z.string(),
-        name: z.string().min(2).max(60),
+        name: z.string().trim().min(2, "Give the AP a name (at least 2 letters).").max(60),
+        /** number/tag marked on the physical device */
+        label: z.string().max(20).optional(),
         ip: z.string().max(45).optional(),
         mac: z.string().max(20).optional(),
         model: z.string().max(60).optional(),
@@ -1938,11 +2125,20 @@ export const saveAccessPoint = createServerFn({ method: "POST" })
     const router = await sql<{ id: string }>`select id from mikrotiks where id = ${data.mikrotikId} limit 1`;
     if (!router[0]) return { ok: false as const, error: "Choose the MikroTik this AP connects to." };
     const id = data.id ?? nid("ap");
+    const label = data.label?.trim() || null;
+    if (label) {
+      const clash = await sql<{ name: string }>`
+        select name from access_points where lower(label) = lower(${label}) and id <> ${id} limit 1
+      `;
+      if (clash[0]) {
+        return { ok: false as const, error: `Number "${label}" is already used by ${clash[0].name}. Pick a different number.` };
+      }
+    }
     await sql`
-      insert into access_points (id, mikrotik_id, name, ip_address, mac_address, model, port, notes)
-      values (${id}, ${data.mikrotikId}, ${data.name.trim()}, ${ip}, ${mac}, ${data.model?.trim() || null}, ${data.port?.trim() || null}, ${data.notes?.trim() || null})
+      insert into access_points (id, mikrotik_id, name, label, ip_address, mac_address, model, port, notes)
+      values (${id}, ${data.mikrotikId}, ${data.name.trim()}, ${label}, ${ip}, ${mac}, ${data.model?.trim() || null}, ${data.port?.trim() || null}, ${data.notes?.trim() || null})
       on conflict (id) do update set
-        mikrotik_id = excluded.mikrotik_id, name = excluded.name, ip_address = excluded.ip_address,
+        mikrotik_id = excluded.mikrotik_id, name = excluded.name, label = excluded.label, ip_address = excluded.ip_address,
         mac_address = excluded.mac_address, model = excluded.model, port = excluded.port,
         notes = excluded.notes, status = 'UNKNOWN', updated_at = now()
     `;

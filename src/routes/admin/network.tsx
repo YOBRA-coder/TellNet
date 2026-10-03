@@ -1675,6 +1675,21 @@ function SiteMapDialog({
               <p className="mt-0.5 text-xs text-subtle">
                 slug: {site.slug} · portal link: /portal?site={site.slug}
               </p>
+              <details className="mt-1 text-xs text-muted">
+                <summary className="cursor-pointer text-accent">
+                  Router setup: make this site's hotspot open its own portal
+                </summary>
+                <p className="mt-1">
+                  On each MikroTik of this site, replace <code>hotspot/login.html</code> (Files) with
+                  this, so customers land on this site&apos;s packages:
+                </p>
+                <pre className="mt-1 overflow-x-auto rounded bg-raised p-2 font-mono text-[11px]">{`<html><head>
+<meta http-equiv="refresh" content="0; url=${typeof window !== "undefined" ? window.location.origin : "https://YOUR-APP"}/portal?site=${site.slug}">
+</head><body></body></html>`}</pre>
+                <p className="mt-1">
+                  Also add your app&apos;s domain to the hotspot walled garden so the page loads before login.
+                </p>
+              </details>
               <div className="mt-3 space-y-2 text-sm">
                 {routers.length === 0 && looseIsps.length === 0 ? (
                   <p className="text-muted">No routers or ISP paths in this site yet.</p>

@@ -77,7 +77,7 @@ function bps(v: number | null | undefined) {
 }
 
 function emptyAp(mikrotikId: string) {
-  return { id: "", mikrotikId, name: "", ip: "", mac: "", model: "", port: "", notes: "" };
+  return { id: "", mikrotikId, name: "", label: "", ip: "", mac: "", model: "", port: "", notes: "" };
 }
 
 function NetworkMapPage() {
@@ -126,6 +126,7 @@ function NetworkMapPage() {
           id: apForm.id || undefined,
           mikrotikId: apForm.mikrotikId,
           name: apForm.name,
+          label: apForm.label || undefined,
           ip: apForm.ip || undefined,
           mac: apForm.mac || undefined,
           model: apForm.model || undefined,
@@ -206,6 +207,11 @@ function NetworkMapPage() {
             ["WARNING", t?.aps.warning ?? 0],
             ["OFFLINE", t?.aps.offline ?? 0],
           ]}
+          note={
+            (t?.aps.noIncome ?? 0) > 0
+              ? `${t!.aps.noIncome} on but earning nothing (${days} days)`
+              : undefined
+          }
         />
         <Summary
           icon={<Users className="size-4" />}
@@ -330,12 +336,21 @@ function NetworkMapPage() {
                                     className="flex items-center justify-between gap-2 rounded-lg bg-raised px-3 py-2 text-sm"
                                   >
                                     <span className="flex min-w-0 items-center gap-2">
-                                      <Dot state={a.status} />
+                                      <Dot state={a.noIncome ? "WARNING" : a.status} />
                                       <Wifi className="size-3.5 shrink-0 text-muted" />
+                                      {a.label ? (
+                                        <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] font-semibold text-accent">
+                                          #{a.label}
+                                        </span>
+                                      ) : null}
                                       <span className="truncate">{a.name}</span>
                                     </span>
-                                    <span className="shrink-0 text-xs text-muted">
-                                      {a.clients != null ? `${a.clients} client${a.clients === 1 ? "" : "s"}` : LABEL[a.status]}
+                                    <span className={cn("shrink-0 text-xs", a.noIncome ? "text-warn" : "text-muted")}>
+                                      {a.noIncome
+                                        ? "No income"
+                                        : a.clients != null
+                                          ? `${a.clients} client${a.clients === 1 ? "" : "s"}`
+                                          : LABEL[a.status]}
                                     </span>
                                   </li>
                                 ))}
@@ -387,6 +402,7 @@ function NetworkMapPage() {
                     id: a.id,
                     mikrotikId: selected.id,
                     name: a.name,
+                    label: a.label ?? "",
                     ip: a.ip ?? "",
                     mac: a.mac ?? "",
                     model: a.model ?? "",
@@ -467,10 +483,20 @@ function NetworkMapPage() {
               </div>
             ) : null}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="ap-name">Name</Label>
-              <Input id="ap-name" required value={apForm.name} placeholder="e.g. Lobby AP" onChange={(e) => setApForm({ ...apForm, name: e.target.value })} />
+            <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="ap-label">AP number</Label>
+                <Input id="ap-label" value={apForm.label} maxLength={20} placeholder="e.g. 3" onChange={(e) => setApForm({ ...apForm, label: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ap-name">Name</Label>
+                <Input id="ap-name" required minLength={2} value={apForm.name} placeholder="e.g. Lobby AP" onChange={(e) => setApForm({ ...apForm, name: e.target.value })} />
+              </div>
             </div>
+            <p className="-mt-1 text-xs text-subtle">
+              The name is how this AP is shown everywhere. If you have marked the device with a number or tag, enter it
+              as the AP number so you can spot the right one on site.
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ap-ip">IP address</Label>
@@ -545,6 +571,7 @@ function Summary({
       ) : (
         <p className="mt-2 text-xs text-muted">{note}</p>
       )}
+      {chips && note ? <p className="mt-1.5 text-xs text-warn">{note}</p> : null}
     </Card>
   );
 }
@@ -682,13 +709,18 @@ function ApTable({
               {r.aps.map((a) => (
                 <tr key={a.id} className="border-t border-border">
                   <td className="py-2 pr-2">
-                    <p className="font-medium">{a.name}</p>
+                    <p className="flex items-center gap-1.5 font-medium">
+                      {a.label ? (
+                        <span className="rounded bg-accent/15 px-1.5 py-0.5 text-xs font-semibold text-accent">#{a.label}</span>
+                      ) : null}
+                      {a.name}
+                    </p>
                     <p className="text-xs text-subtle">{[a.ip, a.model].filter(Boolean).join(" · ") || "—"}</p>
                   </td>
                   <td className="py-2 pr-2">
                     <span className="flex items-center gap-1.5">
-                      <Dot state={a.status} />
-                      {LABEL[a.status]}
+                      <Dot state={a.noIncome ? "WARNING" : a.status} />
+                      {a.noIncome ? "On · no income" : LABEL[a.status]}
                     </span>
                     {a.latencyMs != null ? <span className="text-[11px] text-subtle">{a.latencyMs} ms</span> : null}
                   </td>
@@ -704,7 +736,17 @@ function ApTable({
                       <>
                         <p className="font-medium">KES {a.revenue.toLocaleString()}</p>
                         <p className="text-[11px] text-subtle">{a.paidCustomers ?? 0} paying</p>
+<<<<<<< HEAD
                         {lowEarners.has(a.id) ? <p className="text-[11px] text-warn">Low earner</p> : null}
+=======
+                        {a.noIncome ? (
+                          <p className="text-[11px] text-warn" title={`Online, but no paying customers in the last ${days} days`}>
+                            No income
+                          </p>
+                        ) : lowEarners.has(a.id) ? (
+                          <p className="text-[11px] text-warn">Low earner</p>
+                        ) : null}
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
                       </>
                     )}
                   </td>
@@ -729,6 +771,10 @@ function ApTable({
         </div>
       )}
       <p className="mt-3 text-xs text-subtle">
+<<<<<<< HEAD
+=======
+        Yellow "On · no income" means the AP is reachable but no paid customers were connected through it in the chosen period (new APs get a day first, and it only shows once the router port is set).
+>>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
         Status comes from pinging each AP from the router. Client counts and revenue need the AP's router port (each AP on its own port); signal strength is only available for radios built into the MikroTik itself. Revenue is successful M-Pesa payments, split by where each customer was connected, and builds up as customers use the Wi-Fi.
       </p>
     </Card>
