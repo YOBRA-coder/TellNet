@@ -50,8 +50,8 @@ const empty = {
   name: "",
   price: 10,
   durationMinutes: 60,
-  downloadKbps: 2048,
-  uploadKbps: 1024,
+  downloadKbps: 2,
+  uploadKbps: 1,
   dataLimitMb: "" as number | "",
   status: "ACTIVE" as "ACTIVE" | "INACTIVE",
   siteId: "" as string, // "" = All Sites
@@ -84,8 +84,8 @@ function PackagesAdminPage() {
         name: pkg.name,
         price: pkg.price,
         durationMinutes: pkg.durationMinutes,
-        downloadKbps: pkg.downloadKbps,
-        uploadKbps: pkg.uploadKbps,
+        downloadKbps: pkg.downloadKbps / 1024,
+        uploadKbps: pkg.uploadKbps / 1024,
         dataLimitMb: pkg.dataLimitMb ?? "",
         status: pkg.status,
         siteId: pkg.siteId ?? "",
@@ -110,8 +110,8 @@ function PackagesAdminPage() {
           name: form.name,
           price: Number(form.price),
           durationMinutes: Number(form.durationMinutes),
-          downloadKbps: Number(form.downloadKbps),
-          uploadKbps: Number(form.uploadKbps),
+          downloadKbps: Number(form.downloadKbps) * 1024,
+          uploadKbps: Number(form.uploadKbps) * 1024,
           dataLimitMb: form.dataLimitMb === "" ? null : Number(form.dataLimitMb),
           status: form.status,
           siteId: form.siteId || null,
@@ -279,34 +279,37 @@ function PackagesAdminPage() {
                   onChange={(m) => setForm({ ...form, durationMinutes: m })}
                 />
               </Field>
+{/* Update Download Field */}
+<Field label="Download (Mbps)">
+  <Input
+    type="number"
+    step="any" // Allows decimal points like 1.5 Mbps or 2.5 Mbps
+    min={0.1}
+    value={form.downloadKbps}
+    onChange={(e) =>
+      setForm({
+        ...form,
+        downloadKbps: e.target.value === "" ? 0 : Number(e.target.value),
+      })
+    }
+  />
+</Field>
 
-              <Field label="Download (kbps)">
-                <Input
-                  type="number"
-                  min={64}
-                  value={form.downloadKbps}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      downloadKbps: Number(e.target.value),
-                    })
-                  }
-                />
-              </Field>
-
-              <Field label="Upload (kbps)">
-                <Input
-                  type="number"
-                  min={64}
-                  value={form.uploadKbps}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      uploadKbps: Number(e.target.value),
-                    })
-                  }
-                />
-              </Field>
+{/* Update Upload Field */}
+<Field label="Upload (Mbps)">
+  <Input
+    type="number"
+    step="any"
+    min={0.1}
+    value={form.uploadKbps}
+    onChange={(e) =>
+      setForm({
+        ...form,
+        uploadKbps: e.target.value === "" ? 0 : Number(e.target.value),
+      })
+    }
+  />
+</Field>
 
               <Field
                 label="Data limit MB (blank = unlimited)"
