@@ -286,8 +286,6 @@ export async function signInCustomer(input: {
   return { ok: true, customerId: row.id, phone };
 }
 
-<<<<<<< HEAD
-=======
 const RESET_MAX_FAILED = 5;
 const RESET_LOCK_MINUTES = 30;
 
@@ -379,7 +377,6 @@ export async function resetCustomerSecretWithReceipt(input: {
   return { ok: true, customerId: row.id, phone };
 }
 
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 /**
  * Operator-side reset. With `chosen` the operator sets exactly the PIN or
  * password the customer asked for (easier to remember); without it a random

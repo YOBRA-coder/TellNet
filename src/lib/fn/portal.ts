@@ -12,17 +12,11 @@ import {
   redeemPointsForPackage,
 } from "@/lib/services/loyalty.server";
 import { getHoursForSite, purchaseBlockedReason } from "@/lib/services/hours.server";
-<<<<<<< HEAD
-import {
-  announceReferral,
-  changeCustomerSecret,
-=======
 import { findActiveSiteBySlug, getMainSite, isPackageSoldAtSite } from "@/lib/services/sites.server";
 import {
   announceReferral,
   changeCustomerSecret,
   resetCustomerSecretWithReceipt,
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
   getSessionCustomer,
   signInCustomer,
   signOutDevice,
@@ -100,13 +94,10 @@ async function loadCatalog(siteSlug?: string | null) {
     },
     packages,
     internetUp,
-<<<<<<< HEAD
-=======
     // Which site these packages are for. siteUnknown = a ?site= was given but
     // matches no active site, so the device should forget it (stale link).
     site: { id: site.id, name: site.name, slug: site.slug },
     siteUnknown: Boolean(siteSlug?.trim()) && !matched,
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
     // Opening hours of the router that serves this visitor's site (null = no schedule)
     operating: await getHoursForSite(siteId),
   };
@@ -367,12 +358,6 @@ export const startPayment = createServerFn({ method: "POST" })
         ok: false as const,
         error: "That package isn't sold at this location. Please pick one from the list.",
       };
-    }
-
-    // Closed for the night? Only the package kinds the operator allows can be bought.
-    {
-      const closedMsg = purchaseBlockedReason(await getHoursForSite(paySiteId), String(pkg.duration_kind ?? ""));
-      if (closedMsg) return { ok: false as const, error: closedMsg, closed: true as const };
     }
 
     // Closed for the night? Only the package kinds the operator allows can be bought.
@@ -941,8 +926,6 @@ export const signIn = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => signInCustomer(data));
 
-<<<<<<< HEAD
-=======
 export const resetPasswordWithReceipt = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
     z
@@ -956,7 +939,6 @@ export const resetPasswordWithReceipt = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => resetCustomerSecretWithReceipt(data));
 
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 export const changePin = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
     z

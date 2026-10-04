@@ -1,7 +1,5 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
 
-<<<<<<< HEAD
-=======
 - **RADIUS speed cap is per site**: Access-Accept now uses the customer's site ISP lines for the per-user cap, matching activation (it used all ISPs).
 
 - **Multi-router provisioning**: hotspot logins are now created, disabled and disconnected on the router(s) of the customer's SITE (all routers
@@ -37,7 +35,6 @@
 - **Packages: several sites at once** (Packages -> New/Edit -> "Sites where this package is sold"): tick any number of sites, or "All sites".
   Stored in `package_sites` (existing single-site packages are migrated). The portal shows the package on each ticked site; Site map counts follow.
 
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 - **Opening hours per MikroTik** (migration `0029_hours_ap_revenue.sql`; Network → router → Opening hours): weekly schedule, several
   time windows per day (past-midnight windows supported), East Africa Time (override with `APP_TIMEZONE`). When closed, every TelNet
   hotspot user on that router is disabled and active sessions are kicked (your own router users are never touched); on opening,

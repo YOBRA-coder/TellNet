@@ -37,11 +37,7 @@ import { getRadiusConfig } from "@/lib/services/radius.server";
 import { apRevenue, refreshNetworkLive } from "@/lib/services/network-live.server";
 import { getEffectiveCapacity } from "@/lib/services/capacity.server";
 import { recordProbeResult } from "@/lib/services/outage.server";
-<<<<<<< HEAD
-import { applyOperatingHours, toRouterHours } from "@/lib/services/hours.server";
-=======
 import { applyOperatingHours, toRouterHours, TZ } from "@/lib/services/hours.server";
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 import {
   getRadiusListenerStatus,
   syncRadiusListener,
@@ -1947,18 +1943,12 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
         signalDbm: null,
         checkedAt: a.checked_at ? iso(a.checked_at) : null,
         // revenue can only be attributed when we know which router port the AP is on
-<<<<<<< HEAD
-        revenue: a.port ? (apMoney.get(String(a.id))?.revenue ?? 0) : null,
-        paidCustomers: a.port ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
-      }));
-=======
         revenue,
         paidCustomers: a.port ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
         // a brand-new AP gets a day before it is flagged
         noIncome: canJudgeIncome && revenue === 0 && (status === "ONLINE" || status === "WARNING") && ageMs >= 24 * 3600_000,
         };
       });
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
     // The router's own wifi radios show up automatically (real signal data).
     const radios: AccessPointRow[] = (live?.radios ?? []).map((r) => {
       const p = live!.ports.find((x) => x.name === r.name);
@@ -1980,10 +1970,7 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
         checkedAt: live!.at,
         revenue: apMoney.get(`radio:${mt.id}:${r.name}`)?.revenue ?? 0,
         paidCustomers: apMoney.get(`radio:${mt.id}:${r.name}`)?.customers ?? 0,
-<<<<<<< HEAD
-=======
         noIncome: canJudgeIncome && radioRevenue === 0 && Boolean(p?.running),
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
       };
     });
     const aps = [...radios, ...manual];

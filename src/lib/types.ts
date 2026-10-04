@@ -326,11 +326,8 @@ export type AccessPointRow = {
   /** M-Pesa revenue attributed to this AP over the chosen period; null = no router port set */
   revenue: number | null;
   paidCustomers: number | null;
-<<<<<<< HEAD
-=======
   /** switched on and reachable, but no paid customers over the chosen period */
   noIncome: boolean;
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
 };
 
 export type MapRouter = {

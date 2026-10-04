@@ -177,15 +177,15 @@ function CustomersPage() {
     mutationFn: (input: {
       customerId: string;
       action:
-      | "disconnect"
-      | "block"
-      | "unblock"
-      | "extend"
-      | "changePackage"
-      | "retry"
-      | "releaseDevice"
-      | "resetPin"
-      | "delete";
+        | "disconnect"
+        | "block"
+        | "unblock"
+        | "extend"
+        | "changePackage"
+        | "retry"
+        | "releaseDevice"
+        | "resetPin"
+        | "delete";
       minutes?: number;
       packageId?: string;
       pin?: string;
@@ -337,7 +337,7 @@ function CustomersPage() {
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
-            <TableRow className="whitespace-nowrap">
+            <TableRow  className="whitespace-nowrap">
               <TableHead>Phone</TableHead>
               <TableHead>Package</TableHead>
               <TableHead>Packages bought</TableHead>
@@ -359,7 +359,7 @@ function CustomersPage() {
               </TableRow>
             ) : null}
             {visibleRows.map((row) => (
-              <TableRow key={row.customer.id} className="whitespace-nowrap">
+              <TableRow key={row.customer.id}  className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
                   {formatPhoneDisplay(row.customer.phone)}
                 </TableCell>

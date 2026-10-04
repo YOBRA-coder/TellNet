@@ -301,13 +301,8 @@ export async function activateFromPayment(
     });
     // Bought (or re-pushed) while the router is closed for the night: the
     // login exists but stays switched off until the router opens.
-<<<<<<< HEAD
-    const { isPrimaryClosed } = await import("./hours.server");
-    if (await isPrimaryClosed()) await disableUser(username).catch(() => {});
-=======
     const { isSiteClosed } = await import("./hours.server");
     if (await isSiteClosed(siteId)) await disableUser(username, siteId).catch(() => {});
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
   } catch (err) {
     const failed = err instanceof MikroTikError;
     if (!packRow) {
