@@ -1,3 +1,4 @@
+import { normalizeKenyanPhone } from "@/lib/phone";
 import { nid } from "@/lib/utils";
 import { getSettingsSecret } from "./settings.server";
 
@@ -26,10 +27,20 @@ async function darajaToken(key: string, secret: string, env: string) {
   return { token: json.access_token, base };
 }
 
+/** YYYYMMDDHHmmss in Nairobi time, whatever time zone the server runs in (Vercel is UTC). */
 function timestamp() {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date());
+  const g = (t: string) => parts.find((x) => x.type === t)?.value ?? "00";
+  return `${g("year")}${g("month")}${g("day")}${g("hour")}${g("minute")}${g("second")}`;
 }
 
 function requireLiveCredentials(
@@ -49,6 +60,9 @@ function requireLiveCredentials(
     throw new Error(
       "Set the M-Pesa callback URL in Operator → Settings (public HTTPS ending in /api/mpesa/callback).",
     );
+  }
+  if (settings.mpesaEnv === "production" && !/^https:\/\//i.test(settings.mpesaCallbackUrl)) {
+    throw new Error("Production M-Pesa needs an HTTPS callback URL (Safaricom will not call plain http).");
   }
 }
 
@@ -81,10 +95,15 @@ export async function initiateStkPush(input: {
       BusinessShortCode: settings.mpesaShortcode,
       Password: password,
       Timestamp: ts,
-      TransactionType: "CustomerPayBillOnline",
+      // Paybill: customer pays the shortcode. Till (Buy Goods): the till number is
+      // PartyB and the shortcode above is the store/head-office number the passkey belongs to.
+      TransactionType: settings.mpesaAccountType === "till" ? "CustomerBuyGoodsOnline" : "CustomerPayBillOnline",
       Amount: input.amount,
       PartyA: input.phone,
-      PartyB: settings.mpesaShortcode,
+      PartyB:
+        settings.mpesaAccountType === "till"
+          ? settings.mpesaTillNumber || settings.mpesaShortcode
+          : settings.mpesaShortcode,
       PhoneNumber: input.phone,
       CallBackURL: settings.mpesaCallbackUrl,
       AccountReference: input.accountRef.slice(0, 12),
@@ -185,4 +204,49 @@ export function parseCallback(body: unknown): {
     phone: pick("PhoneNumber") ? String(pick("PhoneNumber")) : null,
     amount: pick("Amount") != null ? Number(pick("Amount")) : null,
   };
+}
+
+/** Settings-page check: do the saved credentials work for the chosen environment? Charges nobody. */
+export async function checkMpesaSetup(): Promise<{
+  ok: boolean;
+  env: string;
+  accountType: string;
+  host: string;
+  problems: string[];
+}> {
+  const s = await getSettingsSecret();
+  const env = s.mpesaEnv === "production" ? "production" : "sandbox";
+  const problems: string[] = [];
+  if (!s.mpesaConsumerKey) problems.push("Consumer key is missing.");
+  if (!s.mpesaConsumerSecret) problems.push("Consumer secret is missing.");
+  if (!s.mpesaPasskey) problems.push("Passkey is missing.");
+  if (!s.mpesaShortcode) problems.push("Shortcode is missing.");
+  if (!s.mpesaCallbackUrl) problems.push("Callback URL is missing.");
+  else if (env === "production" && !/^https:\/\//i.test(s.mpesaCallbackUrl)) {
+    problems.push("Callback URL must be HTTPS for production.");
+  }
+  if (env === "production" && s.mpesaShortcode === "174379") {
+    problems.push("Shortcode 174379 is the Safaricom sandbox test shortcode — use your real Paybill/store number.");
+  }
+  if (s.mpesaAccountType === "till" && !s.mpesaTillNumber) {
+    problems.push("Till mode is on but the Till number is empty (the shortcode will be used instead).");
+  }
+  const base = DARJA_BASE[env];
+  if (s.mpesaConsumerKey && s.mpesaConsumerSecret) {
+    try {
+      await darajaToken(s.mpesaConsumerKey, s.mpesaConsumerSecret, env);
+    } catch (e) {
+      problems.unshift(
+        `Safaricom (${env}) refused the consumer key/secret. Check they are the ${env} ones. ${e instanceof Error ? e.message : ""}`.trim(),
+      );
+    }
+  }
+  return { ok: problems.length === 0, env, accountType: s.mpesaAccountType, host: new URL(base).host, problems };
+}
+
+/** Sends a real prompt for a small amount to the operator's own phone. */
+export async function sendMpesaTestPrompt(phoneInput: string, amount = 1) {
+  const phone = normalizeKenyanPhone(phoneInput);
+  if (!phone) throw new Error("Enter a valid Kenyan phone number.");
+  return initiateStkPush({ phone, amount, accountRef: "TelNetTest", description: "TelNet test" });
 }

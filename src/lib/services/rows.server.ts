@@ -74,6 +74,8 @@ export function mapSettings(row: SqlRow): Settings {
     forceActivationFailure: asBool(row.force_activation_failure),
     mpesaShortcode: row.mpesa_shortcode ? String(row.mpesa_shortcode) : null,
     mpesaEnv: String(row.mpesa_env ?? "sandbox"),
+    mpesaAccountType: row.mpesa_account_type === "till" ? "till" : "paybill",
+    mpesaTillNumber: row.mpesa_till_number ? String(row.mpesa_till_number) : null,
     mpesaCallbackUrl: row.mpesa_callback_url
       ? String(row.mpesa_callback_url)
       : null,

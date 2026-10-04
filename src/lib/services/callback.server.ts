@@ -1,7 +1,7 @@
 import { getSql } from "@/lib/db";
-import { parseCallback } from "./mpesa.server";
+import { parseCallback, queryStkStatus } from "./mpesa.server";
 import { activateFromPayment } from "./activation.server";
-import { logEvent } from "./settings.server";
+import { getSettings, logEvent } from "./settings.server";
 
 /**
  * Idempotent settle: only PENDING → SUCCESS/FAILED once.
@@ -29,6 +29,14 @@ export async function settlePendingByCheckout(input: {
 
   // Already final money state — still try activation if paid but not activated
   if (pay.status === "SUCCESS") {
+    // The status poll can settle a payment before Safaricom's callback arrives; the
+    // callback is the only place the receipt number comes from, so keep it.
+    if (input.receipt && !pay.mpesa_transaction_id) {
+      await sql`
+        update payments set mpesa_transaction_id = ${input.receipt}, updated_at = now()
+        where id = ${pay.id} and mpesa_transaction_id is null
+      `;
+    }
     if (
       pay.activation_status === "ACTIVATION_FAILED" ||
       pay.activation_status === "NOT_ACTIVATED"
@@ -145,6 +153,37 @@ export async function handleMpesaCallback(request: Request): Promise<Response> {
   const parsed = parseCallback(body);
   if (!parsed.checkoutRequestId) {
     return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  }
+  // The callback URL is public and the CheckoutRequestID is visible to the paying
+  // customer's browser, so on production a POSTed "success" is never taken at face
+  // value: the amount must match and Safaricom itself must confirm the result.
+  if (parsed.resultCode === 0 && (await getSettings()).mpesaEnv === "production") {
+    const sql = await getSql();
+    const pay = (
+      await sql<{ status: string; amount: number }>`
+        select status, amount from payments where checkout_request_id = ${parsed.checkoutRequestId} limit 1
+      `
+    )[0];
+    if (!pay) return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+    if (pay.status === "PENDING") {
+      if (parsed.amount != null && Number(parsed.amount) !== Number(pay.amount)) {
+        await logEvent("PAYMENT", `Ignored M-Pesa callback ${parsed.checkoutRequestId}: amount ${parsed.amount} does not match KES ${pay.amount}.`).catch(() => {});
+        return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+      }
+      let confirmed = false;
+      for (let i = 0; i < 3 && !confirmed; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 1500));
+        try {
+          confirmed = (await queryStkStatus(parsed.checkoutRequestId)).resultCode === 0;
+        } catch {
+          // try again, then leave it PENDING for the customer's status poll to settle
+        }
+      }
+      if (!confirmed) {
+        await logEvent("PAYMENT", `M-Pesa callback ${parsed.checkoutRequestId} could not be confirmed with Safaricom; left pending.`).catch(() => {});
+        return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+      }
+    }
   }
   await settlePendingByCheckout({
     checkoutRequestId: parsed.checkoutRequestId,

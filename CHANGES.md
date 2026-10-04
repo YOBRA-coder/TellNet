@@ -1,5 +1,13 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
 
+- **M-Pesa go-live hardening** (migration `0031_mpesa_till.sql`): Settings -> M-Pesa now has **Account type** (Paybill or Till/Buy Goods; Till sends
+  `CustomerBuyGoodsOnline` with the till number as PartyB), a **Check M-Pesa setup** button (asks Safaricom for a token with the saved credentials,
+  flags sandbox values left in live mode, http callback, missing fields) and a **KES 1 test prompt** to your own phone. On production the callback is no
+  longer trusted on its own: amount must match and Safaricom's query API must confirm success (a forged POST can't give free internet). A callback that
+  arrives after the status poll already settled the payment now saves the receipt (previously lost, which broke "Already paid?" recovery and PIN reset).
+  STK timestamp is Nairobi time. Production refuses a non-HTTPS callback URL. Added `/api/pay/callback` as an alias of `/api/mpesa/callback` (some
+  Safaricom setups reject URLs containing "mpesa"). Sandbox behaviour is unchanged.
+
 - **Student packages explained before buying** (client request): student cards show "Educational access · Social & entertainment restricted"
   with an ⓘ. Tapping it opens a short explanation and the list of blocked sites, which comes from Settings -> student blocked domains,
   so it always matches what the router really blocks.

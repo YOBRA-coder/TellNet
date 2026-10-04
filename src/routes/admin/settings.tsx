@@ -10,11 +10,13 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   applyRadiusToRouters,
+  checkMpesaSetupAdmin,
   checkRadiusRouters,
   getCapacityStatus,
   getRadiusStatus,
   getSettingsAdmin,
   saveSettingsAdmin,
+  sendMpesaTestPromptAdmin,
 } from "@/lib/fn/admin";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -33,6 +35,8 @@ function SettingsPage() {
     mpesaConsumerSecret: "",
     mpesaPasskey: "",
     mpesaEnv: "sandbox" as "sandbox" | "production",
+    mpesaAccountType: "paybill" as "paybill" | "till",
+    mpesaTillNumber: "",
     mpesaCallbackUrl: "",
     defaultUploadKbps: 1024,
     capacityMode: "PER_ISP" as "PER_ISP" | "GLOBAL",
@@ -72,6 +76,8 @@ function SettingsPage() {
       welcomeMessage: q.data.welcomeMessage,
       mpesaShortcode: q.data.mpesaShortcode ?? "",
       mpesaEnv: q.data.mpesaEnv === "production" ? "production" : "sandbox",
+      mpesaAccountType: q.data.mpesaAccountType === "till" ? "till" : "paybill",
+      mpesaTillNumber: q.data.mpesaTillNumber ?? "",
       mpesaCallbackUrl: q.data.mpesaCallbackUrl ?? "",
       defaultUploadKbps: q.data.defaultUploadKbps,
       capacityMode: q.data.capacityMode,
@@ -133,6 +139,19 @@ function SettingsPage() {
     onError: () => toast.error("Could not reach the routers."),
   });
   const check = useMutation({ mutationFn: () => checkRadiusRouters() });
+  const [testPhone, setTestPhone] = useState("");
+  const mpesaCheck = useMutation({
+    mutationFn: () => checkMpesaSetupAdmin(),
+    onError: () => toast.error("Could not run the M-Pesa check."),
+  });
+  const mpesaTest = useMutation({
+    mutationFn: () => sendMpesaTestPromptAdmin({ data: { phone: testPhone } }),
+    onSuccess: (r) =>
+      r.ok
+        ? toast.success("Prompt sent. Check your phone and enter your M-Pesa PIN (KES 1).")
+        : toast.error(r.error, { duration: 12_000 }),
+    onError: () => toast.error("Could not send the test prompt."),
+  });
 
   return (
     <form
@@ -476,15 +495,44 @@ function SettingsPage() {
             <option value="production">Production (live)</option>
           </select>
         </Field>
-        <Field label="Shortcode / Till">
+        {form.mpesaEnv === "production" ? (
+          <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">
+            Live mode: sandbox keys, passkey and shortcode (174379) will not work here. Paste your
+            production Consumer key, Consumer secret, Passkey and your real shortcode, save, then press
+            "Check M-Pesa setup" below.
+          </p>
+        ) : null}
+        <Field label="Account type">
+          <select
+            className="h-10 w-full rounded-md border border-border bg-raised px-3 text-sm"
+            value={form.mpesaAccountType}
+            onChange={(e) =>
+              setForm({ ...form, mpesaAccountType: e.target.value === "till" ? "till" : "paybill" })
+            }
+          >
+            <option value="paybill">Paybill (customers pay a Paybill number)</option>
+            <option value="till">Till / Buy Goods (customers pay a Till number)</option>
+          </select>
+        </Field>
+        <Field label={form.mpesaAccountType === "till" ? "Store / head-office number (shortcode)" : "Shortcode (Paybill number)"}>
           <Input
+            inputMode="numeric"
             value={form.mpesaShortcode}
             onChange={(e) => setForm({ ...form, mpesaShortcode: e.target.value })}
           />
         </Field>
+        {form.mpesaAccountType === "till" ? (
+          <Field label="Till number (what customers pay)">
+            <Input
+              inputMode="numeric"
+              value={form.mpesaTillNumber}
+              onChange={(e) => setForm({ ...form, mpesaTillNumber: e.target.value })}
+            />
+          </Field>
+        ) : null}
         <Field label="Callback URL (public HTTPS)">
           <Input
-            placeholder="https://your-domain.com/api/mpesa/callback"
+            placeholder="https://your-domain.com/api/pay/callback"
             value={form.mpesaCallbackUrl}
             onChange={(e) => setForm({ ...form, mpesaCallbackUrl: e.target.value })}
           />
@@ -518,6 +566,65 @@ function SettingsPage() {
             onChange={(e) => setForm({ ...form, mpesaPasskey: e.target.value })}
           />
         </Field>
+
+        <div className="space-y-3 border-t border-border pt-4">
+          <p className="text-sm text-muted">
+            Save first, then check. The check asks Safaricom for an access token using the saved
+            credentials; it charges nobody.
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={mpesaCheck.isPending}
+            onClick={() => mpesaCheck.mutate()}
+          >
+            {mpesaCheck.isPending ? "Checking…" : "Check M-Pesa setup"}
+          </Button>
+          {mpesaCheck.data ? (
+            <div
+              className={`rounded-md border p-3 text-sm ${
+                mpesaCheck.data.ok ? "border-ok/40 bg-ok/10 text-ok" : "border-danger/40 bg-danger/10 text-danger"
+              }`}
+            >
+              {mpesaCheck.data.ok ? (
+                <p>
+                  Safaricom accepted your {mpesaCheck.data.env} credentials ({mpesaCheck.data.host},{" "}
+                  {mpesaCheck.data.accountType}). Now send a KES 1 test prompt to confirm the full flow.
+                </p>
+              ) : (
+                <ul className="list-disc space-y-1 pl-4">
+                  {mpesaCheck.data.problems.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[12rem] flex-1 space-y-1.5">
+              <Label htmlFor="mpesa-test-phone">Send a KES 1 test prompt to</Label>
+              <Input
+                id="mpesa-test-phone"
+                inputMode="tel"
+                placeholder="07XX XXX XXX (your own phone)"
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={mpesaTest.isPending || testPhone.trim().length < 9}
+              onClick={() => mpesaTest.mutate()}
+            >
+              {mpesaTest.isPending ? "Sending…" : "Send test prompt"}
+            </Button>
+          </div>
+          <p className="text-xs text-subtle">
+            In live mode this is a real KES 1 payment into your own account. It isn't linked to any
+            customer or package.
+          </p>
+        </div>
       </Card>
 
       <Card className="space-y-3 p-5">

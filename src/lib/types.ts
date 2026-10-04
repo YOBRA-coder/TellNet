@@ -71,6 +71,9 @@ export type Settings = {
   forceActivationFailure: boolean;
   mpesaShortcode: string | null;
   mpesaEnv: string;
+  /** paybill = CustomerPayBillOnline, till = CustomerBuyGoodsOnline */
+  mpesaAccountType: "paybill" | "till";
+  mpesaTillNumber: string | null;
   mpesaCallbackUrl: string | null;
   hasMpesaKey: boolean;
   hasMpesaSecret: boolean;

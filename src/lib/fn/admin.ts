@@ -973,6 +973,27 @@ export const getReports = createServerFn({ method: "POST" })
     };
   });
 
+export const checkMpesaSetupAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const { checkMpesaSetup } = await import("@/lib/services/mpesa.server");
+    return checkMpesaSetup();
+  });
+
+export const sendMpesaTestPromptAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ phone: z.string().min(9).max(20) }).parse(data))
+  .handler(async ({ data }) => {
+    try {
+      const { sendMpesaTestPrompt } = await import("@/lib/services/mpesa.server");
+      await sendMpesaTestPrompt(data.phone, 1);
+      await logEvent("PAYMENT", "Operator sent a KES 1 M-Pesa test prompt.").catch(() => {});
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : "Could not send the prompt." };
+    }
+  });
+
 export const getNetwork = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
@@ -1044,6 +1065,8 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
         mpesaConsumerSecret: z.string().optional(),
         mpesaPasskey: z.string().optional(),
         mpesaEnv: z.enum(["sandbox", "production"]),
+        mpesaAccountType: z.enum(["paybill", "till"]).optional(),
+        mpesaTillNumber: z.string().max(20).optional(),
         mpesaCallbackUrl: z.string().optional(),
         defaultUploadKbps: z.number().int().min(64),
         capacityMode: z.enum(["PER_ISP", "GLOBAL"]).optional(),
@@ -1086,6 +1109,8 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
         force_activation_failure = false,
         mpesa_shortcode = ${data.mpesaShortcode || null},
         mpesa_env = ${data.mpesaEnv},
+        mpesa_account_type = ${data.mpesaAccountType ?? "paybill"},
+        mpesa_till_number = ${data.mpesaTillNumber?.replace(/\D/g, "") || null},
         mpesa_callback_url = ${data.mpesaCallbackUrl || null},
         default_upload_kbps = ${data.defaultUploadKbps},
         capacity_mode = ${data.capacityMode ?? "PER_ISP"},

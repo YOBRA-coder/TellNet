@@ -199,7 +199,7 @@ export async function apiCall(
     socket.on("data", (chunk) => {
       buf = Buffer.concat([buf, chunk]);
       const { sentences: parsed, rest } = parseSentences(buf);
-      buf = rest as Buffer<ArrayBuffer>;
+      buf = rest;
 
       for (const s of parsed) {
         if (phase === "login" || phase === "chal") {
