@@ -19,7 +19,7 @@ export function OperatorUserButton() {
       }
 
       await navigate({
-        to: "/login",
+        to: "/",
         replace: true,
       });
     } catch (error) {
