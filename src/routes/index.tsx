@@ -146,6 +146,7 @@ const packages = q.data?.packages ?? [];
               requireAccountForMulti={Boolean(settings?.requireAccountMultiDevice)}
               rewardsOn={Boolean(settings?.loyaltyEnabled || settings?.referralEnabled)}
               operating={q.data?.operating ?? null}
+              studentBlockedDomains={settings?.studentBlockedDomains}
             />
           )}
         </div>

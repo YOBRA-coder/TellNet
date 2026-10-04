@@ -437,15 +437,14 @@ export const customerAction = createServerFn({ method: "POST" })
       for (const s of ses) await disconnectSession(s.id);
       // Also kick the login on the router itself, in case the local session
       // record is missing or stale.
-      const user = await sql<{ mikrotik_username: string | null; site_id: string | null }>`
-        select cp.mikrotik_username, c.site_id from customer_packages cp
-        join customers c on c.id = cp.customer_id
-        where cp.customer_id = ${data.customerId} and cp.status = 'ACTIVE' and cp.mikrotik_username is not null
-        order by cp.expiry_time desc limit 1
+      const user = await sql<{ mikrotik_username: string | null }>`
+        select mikrotik_username from customer_packages
+        where customer_id = ${data.customerId} and status = 'ACTIVE' and mikrotik_username is not null
+        order by expiry_time desc limit 1
       `;
       let routerKick = false;
       if (user[0]?.mikrotik_username) {
-        routerKick = await disconnectUser(user[0].mikrotik_username, user[0].site_id ?? "site_default").then(
+        routerKick = await disconnectUser(user[0].mikrotik_username).then(
           () => true,
           () => false,
         );

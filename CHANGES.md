@@ -1,19 +1,8 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
 
-- **RADIUS speed cap is per site**: Access-Accept now uses the customer's site ISP lines for the per-user cap, matching activation (it used all ISPs).
-
-- **Multi-router provisioning**: hotspot logins are now created, disabled and disconnected on the router(s) of the customer's SITE (all routers
-  at that site; the primary router if the site has none), not only the primary. Succeeds if at least one router took it. Applies to activation,
-  expiry, block, admin disconnect. "Closed for the night" is checked on the customer's site router. Speed/seat limits and the seat count are
-  now per site (that site's ISP lines, and that site's active users). Network -> Sites shows the `login.html` redirect to put on each site's router.
-  RADIUS setups are unchanged.
-
-- **Site-aware portal (package visibility fix)**: one rule (`isPackageSoldAtSite`, `src/lib/services/sites.server.ts`) now drives the package list,
-  payment and points redemption: `package_sites` rows decide; no rows = every site. A customer only sees (and can only buy) packages sold at the site
-  of the router they came in through (`/portal?site=<slug>`). Fixes: stale `packages.site_id` could show a package at a site it was un-ticked from;
-  paying with no/unknown `?site=` used the package's first site instead of the main site; the portal loader ignored the remembered site when the
-  `?site=` param was dropped by navigation (wrong packages flashed); `listPortalPackages` returned every package; "internet down" used every ISP
-  instead of the ones serving the visitor's site; a stale/inactive slug is now forgotten on the device (`siteUnknown`).
+- **Student packages explained before buying** (client request): student cards show "Educational access · Social & entertainment restricted"
+  with an ⓘ. Tapping it opens a short explanation and the list of blocked sites, which comes from Settings -> student blocked domains,
+  so it always matches what the router really blocks.
 
 - **Customer forgot PIN/password** (`/portal/auth` -> "Forgot your PIN or password?"): the customer enters their phone number, an
   M-Pesa transaction code from a payment made with it, and a new PIN/password. Voucher/points references don't count. Wrong codes are

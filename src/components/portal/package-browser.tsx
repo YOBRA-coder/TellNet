@@ -20,6 +20,7 @@ export function PackageBrowser({
   requireAccountForMulti,
   rewardsOn,
   operating,
+  studentBlockedDomains,
 }: {
   packages: Package[];
   currency: string;
@@ -29,6 +30,8 @@ export function PackageBrowser({
   rewardsOn: boolean;
   /** opening hours of the router serving this visitor (null/disabled = always open) */
   operating?: PortalOperating | null;
+  /** comma-separated sites blocked on student packages (shown in the card's ⓘ details) */
+  studentBlockedDomains?: string;
 }) {
   // Set default filter to "1" instead of "ALL"
   const [filter, setFilter] = useState<Filter>("1");
@@ -162,6 +165,7 @@ export function PackageBrowser({
             pkg={pkg}
             currency={currency}
             maxDevices={pkg.maxDevices}
+            blockedDomains={studentBlockedDomains}
             locked={lockMulti && pkg.maxDevices > 1}
             unavailableLabel={
               cannotBuy(pkg) ? (operating?.opensAtLabel ? `Opens ${operating.opensAtLabel}` : "Closed") : undefined

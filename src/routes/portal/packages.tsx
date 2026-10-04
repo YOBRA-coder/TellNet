@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { PackageBrowser } from "@/components/portal/package-browser";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { useDevice } from "@/hooks/use-device";
-import { clearSite, readSite } from "@/lib/device";
+import { readSite } from "@/lib/device";
 import { getPortalBootstrap } from "@/lib/fn/portal";
 import type { Package } from "@/lib/types";
 
@@ -25,10 +24,6 @@ function PackagesPage() {
         data: { token: device!.token, phone: device?.phone ?? undefined, site: readSite() },
       }),
   });
-
-  useEffect(() => {
-    if (q.data?.siteUnknown) clearSite();
-  }, [q.data?.siteUnknown]);
 
   const settings = q.data?.settings ?? catalog.settings;
   const packages = q.data?.packages ?? catalog.packages;
@@ -77,6 +72,7 @@ function PackagesPage() {
               requireAccountForMulti={Boolean(settings.requireAccountMultiDevice)}
               rewardsOn={Boolean(settings.loyaltyEnabled || settings.referralEnabled)}
               operating={q.data?.operating ?? null}
+              studentBlockedDomains={settings.studentBlockedDomains}
             />
           </div>
         </>

@@ -135,58 +135,6 @@ export async function getRouterCredentialsById(
   };
 }
 
-/**
- * Routers that serve a site. A customer's hotspot login must exist on the
- * router(s) of the site they connect through, not only on the primary one.
- * No site given, or a site with no router of its own -> the primary router
- * (same fallback as opening hours), so single-site installs behave as before.
- */
-export async function getRouterTargets(siteId?: string | null): Promise<RouterCreds[]> {
-  if (siteId) {
-    const sql = await getSql();
-    const rows = await sql<{ id: string }>`
-      select id from mikrotiks
-      where coalesce(site_id, 'site_default') = ${siteId}
-        and coalesce(host, '') <> '' and coalesce(api_user, '') <> '' and coalesce(api_password, '') <> ''
-      order by is_primary desc, created_at
-    `;
-    const out: RouterCreds[] = [];
-    for (const r of rows) {
-      const c = await getRouterCredentialsById(String(r.id));
-      if (c) out.push(c);
-    }
-    if (out.length > 0) return out;
-  }
-  const primary = await getRouterCredentials();
-  return primary ? [primary] : [];
-}
-
-/**
- * Run an action on every router of the site. Succeeds when at least one router
- * took it (another may be offline; it is retried on the next activation or
- * reconnect). Throws the first error only if every router failed.
- */
-async function onSiteRouters(
-  siteId: string | null | undefined,
-  action: (creds: RouterCreds) => Promise<void>,
-): Promise<void> {
-  const s = await getSettingsSecret();
-  if (s.forceActivationFailure) throw new MikroTikError("No MikroTik router configured or router unreachable.");
-  const targets = await getRouterTargets(siteId);
-  if (targets.length === 0) throw new MikroTikError("No MikroTik router configured. Add one under Operator → Network.");
-  let firstError: unknown = null;
-  let okCount = 0;
-  for (const creds of targets) {
-    try {
-      await action(creds);
-      okCount++;
-    } catch (e) {
-      firstError ??= e;
-    }
-  }
-  if (okCount === 0) throw firstError;
-}
-
 /** Returns true when a real MikroTik is configured (live only). */
 async function hasLiveRouter() {
   const s = await getSettingsSecret();
@@ -532,16 +480,12 @@ async function kickExtraActiveSessions(username: string, creds: RouterCreds) {
   }
 }
 
-export async function createAndActivateUser(input: HotspotUserInput & { siteId?: string | null }) {
-  // Live MikroTik only — no simulated activation. The login is created on
-  // every router of the customer's site (primary router if the site has none).
-  await onSiteRouters(input.siteId, async (creds) => {
-    await createUserOnRouter(creds, input);
-  });
-  return { username: input.username };
-}
+export async function createAndActivateUser(input: HotspotUserInput) {
+  // Live MikroTik only — no simulated activation.
+  if (!(await hasLiveRouter())) throw new MikroTikError("No MikroTik router configured or router unreachable.");
 
-async function createUserOnRouter(creds: RouterCreds, input: HotspotUserInput) {
+  const creds = await getRouterCredentials();
+  if (!creds) throw new MikroTikError("No MikroTik router configured. Add one under Operator → Network.");
   const maxDevices = input.maxDevices && input.maxDevices >= 2 ? 2 : 1;
 
   if (creds.apiMode === "api6") {
@@ -648,11 +592,10 @@ async function createUserOnRouter(creds: RouterCreds, input: HotspotUserInput) {
   return { username: input.username };
 }
 
-export async function disableUser(username: string, siteId?: string | null) {
-  await onSiteRouters(siteId, (creds) => disableUserOnRouter(creds, username));
-}
-
-async function disableUserOnRouter(creds: RouterCreds, username: string) {
+export async function disableUser(username: string) {
+  if (!(await hasLiveRouter())) throw new MikroTikError();
+  const creds = await getRouterCredentials();
+  if (!creds) throw new MikroTikError();
   if (creds.apiMode === "api6") {
     await apiDisableUser(
       {
@@ -679,11 +622,10 @@ async function disableUserOnRouter(creds: RouterCreds, username: string) {
   }
 }
 
-export async function disconnectUser(username: string, siteId?: string | null) {
-  await onSiteRouters(siteId, (creds) => disconnectUserOnRouter(creds, username));
-}
-
-async function disconnectUserOnRouter(creds: RouterCreds, username: string) {
+export async function disconnectUser(username: string) {
+  if (!(await hasLiveRouter())) throw new MikroTikError();
+  const creds = await getRouterCredentials();
+  if (!creds) throw new MikroTikError();
   if (creds.apiMode === "api6") {
     await apiDisconnectUser(
       {

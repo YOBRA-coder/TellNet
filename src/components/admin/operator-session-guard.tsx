@@ -14,7 +14,7 @@ export function OperatorSessionGuard() {
 
       if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
         void router.navigate({
-          to: "/",
+          to: "/login",
           search: { redirect: pathname },
         });
       }

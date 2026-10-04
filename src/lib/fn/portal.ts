@@ -12,7 +12,6 @@ import {
   redeemPointsForPackage,
 } from "@/lib/services/loyalty.server";
 import { getHoursForSite, purchaseBlockedReason } from "@/lib/services/hours.server";
-import { findActiveSiteBySlug, getMainSite, isPackageSoldAtSite } from "@/lib/services/sites.server";
 import {
   announceReferral,
   changeCustomerSecret,
@@ -50,31 +49,28 @@ async function loadCatalog(siteSlug?: string | null) {
   await expireDuePackages();
   const sql = await getSql();
   const settings = await getSettings();
-  const matched = await findActiveSiteBySlug(siteSlug);
-  const site = matched ?? (await getMainSite());
-  const siteId = site.id;
-  // Same rule as isPackageSoldAtSite(): rows in package_sites decide; no rows
-  // = sold everywhere (or, for legacy rows, at packages.site_id only).
+  const siteRow = siteSlug
+    ? (
+        await sql<{ id: string }>`
+          select id from sites where slug = ${siteSlug} and status = 'ACTIVE' limit 1
+        `
+      )[0]
+    : null;
+  const siteId = siteRow?.id ?? "site_default";
   const packages = (
     await sql<SqlRow>`
       select * from packages
       where status = 'ACTIVE'
         and (
-          exists (select 1 from package_sites ps where ps.package_id = packages.id and ps.site_id = ${siteId})
-          or (
-            not exists (select 1 from package_sites ps where ps.package_id = packages.id)
-            and (site_id is null or site_id = ${siteId})
-          )
+          (site_id is null and not exists (select 1 from package_sites ps where ps.package_id = packages.id))
+          or site_id = ${siteId}
+          or exists (select 1 from package_sites ps where ps.package_id = packages.id and ps.site_id = ${siteId})
         )
       order by sort_order, price
     `
   ).map(mapPackage);
-  // Internet status for THIS site: only the ISP lines that serve it (or are
-  // not tied to any site). A site with no lines of its own falls back to all.
-  const allIsps = (await sql<SqlRow>`select * from isps order by sort_order`).map(mapIsp);
-  const siteIsps = allIsps.filter((i) => !i.siteId || i.siteId === siteId);
-  const relevant = siteIsps.length > 0 ? siteIsps : allIsps;
-  const internetUp = relevant.some((i) => i.status !== "OFFLINE");
+  const isps = (await sql<SqlRow>`select * from isps order by sort_order`).map(mapIsp);
+  const internetUp = isps.some((i) => i.status !== "OFFLINE");
   return {
     settings: {
       hotspotName: settings.hotspotName,
@@ -91,13 +87,10 @@ async function loadCatalog(siteSlug?: string | null) {
       referralMinPackagePrice: settings.referralMinPackagePrice,
       maxDevicesPerPackage: settings.maxDevicesPerPackage,
       requireAccountMultiDevice: settings.requireAccountMultiDevice,
+      studentBlockedDomains: settings.studentBlockedDomains,
     },
     packages,
     internetUp,
-    // Which site these packages are for. siteUnknown = a ?site= was given but
-    // matches no active site, so the device should forget it (stale link).
-    site: { id: site.id, name: site.name, slug: site.slug },
-    siteUnknown: Boolean(siteSlug?.trim()) && !matched,
     // Opening hours of the router that serves this visitor's site (null = no schedule)
     operating: await getHoursForSite(siteId),
   };
@@ -251,11 +244,15 @@ export const getPortalBootstrap = createServerFn({ method: "POST" })
     };
   });
 
-export const listPortalPackages = createServerFn({ method: "GET" })
-  .validator((data: unknown) =>
-    z.object({ site: z.string().max(40).optional() }).optional().parse(data),
-  )
-  .handler(async ({ data }) => (await loadCatalog(data?.site)).packages as Package[]);
+export const listPortalPackages = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const sql = await getSql();
+    const rows = await sql<SqlRow>`
+      select * from packages where status = 'ACTIVE' order by sort_order, price
+    `;
+    return rows.map(mapPackage) as Package[];
+  },
+);
 
 function activationFailure(
   activation: { ok: false; reason: string },
@@ -347,17 +344,18 @@ export const startPayment = createServerFn({ method: "POST" })
         error: "This number is blocked. Please contact the hotspot operator.",
       };
     }
-    // Which town this sale belongs to: the router's portal link (?site=slug),
-    // else the main site, exactly like the package list the customer saw.
-    // The package must be sold there, so a stale link or a hand-made request
-    // can't buy a package that isn't offered at this location.
-    const paySite = (await findActiveSiteBySlug(data.site)) ?? (await getMainSite());
-    const paySiteId = paySite.id;
-    if (!(await isPackageSoldAtSite(String(pkg.id), paySiteId))) {
-      return {
-        ok: false as const,
-        error: "That package isn't sold at this location. Please pick one from the list.",
-      };
+    // Which town this sale belongs to: the router's portal link (?site=slug)
+    // wins, then the package's own site, then the main site. Customers and
+    // payments carry it so reports can be filtered per town.
+    let paySiteId = "site_default";
+    if (data.site) {
+      const hit = await sql<{ id: string }>`
+        select id from sites where slug = ${data.site} and status = 'ACTIVE' limit 1
+      `;
+      if (hit[0]) paySiteId = hit[0].id;
+      else if (pkg.site_id) paySiteId = String(pkg.site_id);
+    } else if (pkg.site_id) {
+      paySiteId = String(pkg.site_id);
     }
 
     // Closed for the night? Only the package kinds the operator allows can be bought.
@@ -1084,7 +1082,6 @@ export const redeemPoints = createServerFn({ method: "POST" })
       .object({
         packageId: z.string(),
         token: z.string().min(8).max(80),
-        site: z.string().max(40).optional(),
       })
       .parse(data),
   )
@@ -1097,10 +1094,6 @@ export const redeemPoints = createServerFn({ method: "POST" })
     const member = await getSessionCustomer(data.token);
     if (!member?.registered) {
       return { ok: false as const, error: "Sign in to redeem your loyalty points." };
-    }
-    const here = (await findActiveSiteBySlug(data.site)) ?? (await getMainSite());
-    if (!(await isPackageSoldAtSite(data.packageId, here.id))) {
-      return { ok: false as const, error: "That package isn't sold at this location." };
     }
     return redeemPointsForPackage({
       customerId: member.id,

@@ -32,9 +32,8 @@ async function sweepExpired(): Promise<number> {
     payment_id: string;
     mikrotik_username: string | null;
     phone: string;
-    site_id: string | null;
   }>`
-    select cp.id, cp.customer_id, cp.payment_id, cp.mikrotik_username, c.phone, c.site_id
+    select cp.id, cp.customer_id, cp.payment_id, cp.mikrotik_username, c.phone
     from customer_packages cp
     join customers c on c.id = cp.customer_id
     join packages pkg on pkg.id = cp.package_id
@@ -76,9 +75,8 @@ async function sweepExpired(): Promise<number> {
     `;
     if (row.mikrotik_username) {
       try {
-        const site = row.site_id ?? "site_default";
-        await disconnectUser(row.mikrotik_username, site);
-        await disableUser(row.mikrotik_username, site);
+        await disconnectUser(row.mikrotik_username);
+        await disableUser(row.mikrotik_username);
       } catch {
         /* router down — package is still expired in the ledger */
       }

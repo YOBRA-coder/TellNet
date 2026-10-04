@@ -4,7 +4,6 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
 import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
-import { readSite } from "@/lib/device";
 import { changePin, dismissNotices, getRewards, redeemPoints, signOut } from "@/lib/fn/portal";
 import { formatStamp } from "@/lib/format";
 import { formatPhoneDisplay } from "@/lib/phone";
@@ -40,7 +39,7 @@ function RewardsPage() {
 
   const redeem = useMutation({
     mutationFn: (packageId: string) =>
-      redeemPoints({ data: { packageId, token: device!.token, site: readSite() } }),
+      redeemPoints({ data: { packageId, token: device!.token } }),
     onSuccess: (res) => {
       if (!res.ok) return void toast.error(res.error);
       toast.success(res.queued ? "Redeemed! It will start when your current package ends." : "Redeemed! Connecting you now.");

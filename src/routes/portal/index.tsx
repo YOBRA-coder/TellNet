@@ -5,7 +5,7 @@ import { PackageBrowser } from "@/components/portal/package-browser";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
-import { clearSite, readSite } from "@/lib/device";
+import { readSite } from "@/lib/device";
 import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { getPortalBootstrap, signOut } from "@/lib/fn/portal";
@@ -41,11 +41,6 @@ function PortalHome() {
       qc.invalidateQueries();
     },
   });
-
-  // A remembered ?site= that no longer matches an active site is dropped.
-  useEffect(() => {
-    if (q.data?.siteUnknown) clearSite();
-  }, [q.data?.siteUnknown]);
 
   useEffect(() => {
     if (q.data?.access?.customer) {
@@ -225,6 +220,7 @@ function PortalHome() {
               requireAccountForMulti={Boolean(settings.requireAccountMultiDevice)}
               rewardsOn={Boolean(settings.loyaltyEnabled || settings.referralEnabled)}
               operating={q.data?.operating ?? null}
+              studentBlockedDomains={settings.studentBlockedDomains}
             />
           </div>
         </>

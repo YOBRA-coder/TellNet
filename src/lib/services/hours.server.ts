@@ -184,15 +184,6 @@ export async function isPrimaryClosed(): Promise<boolean> {
   return Boolean(r?.hours_enabled) && r?.hours_state === "CLOSED";
 }
 
-/** Is the router that serves this site closed for the night right now? (primary router if the site has none) */
-export async function isSiteClosed(siteId: string | null | undefined): Promise<boolean> {
-  const h = await getHoursForSite(siteId ?? "site_default");
-  if (!h || !h.enabled) return false;
-  const sql = await getSql();
-  const r = (await sql<{ hours_state: string }>`select hours_state from mikrotiks where id = ${h.routerId} limit 1`)[0];
-  return r?.hours_state === "CLOSED";
-}
-
 async function usernamesToEnable(): Promise<string[]> {
   const sql = await getSql();
   const rows = await sql<{ u: string }>`

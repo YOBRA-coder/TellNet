@@ -31,11 +31,10 @@ export async function radiusLookupUser(username: string): Promise<RadiusUser | n
     mikrotik_username: string | null;
     package_name: string;
     max_devices: number | null;
-    site_id: string | null;
   }>`
     select cp.id, cp.expiry_time, cp.speed_limit_kbps, cp.radius_password,
            cp.mikrotik_username, pkg.name as package_name, pkg.upload_kbps,
-           pkg.max_devices, c.site_id
+           pkg.max_devices
     from customer_packages cp
     join customers c on c.id = cp.customer_id
     join packages pkg on pkg.id = cp.package_id
@@ -57,8 +56,7 @@ export async function radiusLookupUser(username: string): Promise<RadiusUser | n
   // No stored secret = this package predates RADIUS support; it can't be
   // authenticated over RADIUS until it is next (re)activated on the router.
   if (!row.radius_password) return null;
-  // Same per-site cap that activation applies, so both paths give the same speed.
-  const cap = (await getEffectiveCapacity(row.site_id ?? "site_default")).perUserMaxKbps || Infinity;
+  const cap = (await getEffectiveCapacity()).perUserMaxKbps || Infinity;
   return {
     username: row.mikrotik_username || name,
     password: row.radius_password,

@@ -223,15 +223,6 @@ export async function activateFromPayment(
     return { ok: false, reason: "in_use" };
   }
 
-  // Site (town) this sale belongs to: its router(s) get the hotspot login.
-  const siteId = String(
-    pay.site_id ??
-      (
-        await sql<{ site_id: string | null }>`select site_id from customers where id = ${pay.customer_id} limit 1`
-      )[0]?.site_id ??
-      "site_default",
-  );
-
   const username =
     (packRow?.mikrotik_username as string | null) ||
     usernameForPhone(String(pay.phone));
@@ -242,12 +233,10 @@ export async function activateFromPayment(
   );
 
   // Limits follow the ISP path(s) currently connected (see capacity.server.ts).
-  const capacity = await getEffectiveCapacity(siteId);
+  const capacity = await getEffectiveCapacity();
   const online = (
     await sql<{ n: number }>`
-      select count(*)::int as n
-      from sessions s join customers c on c.id = s.customer_id
-      where s.status = 'ACTIVE' and coalesce(c.site_id, 'site_default') = ${siteId}
+      select count(*)::int as n from sessions where status = 'ACTIVE'
     `
   )[0];
   if (capacity.maxUsers > 0 && asNumber(online?.n) >= capacity.maxUsers) {
@@ -288,7 +277,6 @@ export async function activateFromPayment(
       uploadKbps,
       sessionTimeoutSeconds: remaining,
       customerId: String(pay.customer_id),
-      siteId,
       maxDevices: settings.oneDevicePerPackage ? packageMaxDevices : 1,
       category: effCategory === "STUDENT" ? "STUDENT" : "STANDARD",
       blockedDomains:
@@ -301,8 +289,8 @@ export async function activateFromPayment(
     });
     // Bought (or re-pushed) while the router is closed for the night: the
     // login exists but stays switched off until the router opens.
-    const { isSiteClosed } = await import("./hours.server");
-    if (await isSiteClosed(siteId)) await disableUser(username, siteId).catch(() => {});
+    const { isPrimaryClosed } = await import("./hours.server");
+    if (await isPrimaryClosed()) await disableUser(username).catch(() => {});
   } catch (err) {
     const failed = err instanceof MikroTikError;
     if (!packRow) {
@@ -511,15 +499,13 @@ export async function releaseDeviceBind(customerId: string) {
 
 export async function disconnectSession(sessionId: string) {
   const sql = await getSql();
-  const rows = await sql<{ mikrotik_username: string | null; site_id: string | null }>`
-    select s.mikrotik_username, c.site_id
-    from sessions s left join customers c on c.id = s.customer_id
-    where s.id = ${sessionId} limit 1
+  const rows = await sql<{ mikrotik_username: string | null }>`
+    select mikrotik_username from sessions where id = ${sessionId} limit 1
   `;
   const username = rows[0]?.mikrotik_username;
   if (username) {
     try {
-      await disconnectUser(username, rows[0]?.site_id ?? "site_default");
+      await disconnectUser(username);
     } catch {
       /* still mark disconnected locally */
     }
@@ -534,9 +520,6 @@ export async function disconnectSession(sessionId: string) {
 export async function blockCustomer(customerId: string) {
   const sql = await getSql();
   await sql`update customers set status = 'BLOCKED', updated_at = now() where id = ${customerId}`;
-  const site =
-    (await sql<{ site_id: string | null }>`select site_id from customers where id = ${customerId} limit 1`)[0]
-      ?.site_id ?? "site_default";
   const users = await sql<{ mikrotik_username: string | null }>`
     select mikrotik_username from customer_packages
     where customer_id = ${customerId} and mikrotik_username is not null
@@ -544,8 +527,8 @@ export async function blockCustomer(customerId: string) {
   for (const u of users) {
     if (!u.mikrotik_username) continue;
     try {
-      await disconnectUser(u.mikrotik_username, site);
-      await disableUser(u.mikrotik_username, site);
+      await disconnectUser(u.mikrotik_username);
+      await disableUser(u.mikrotik_username);
     } catch {
       /* ledger is source of truth */
     }

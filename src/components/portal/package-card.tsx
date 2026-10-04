@@ -1,6 +1,14 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Lock, Smartphone, Zap } from "lucide-react";
+import { ArrowRight, Info, Lock, Smartphone, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { formatDuration, formatKes, formatSpeed } from "@/lib/format";
 import type { Package } from "@/lib/types";
 
@@ -8,6 +16,13 @@ const BADGE_LABEL: Record<NonNullable<Package["badge"]>, string> = {
   MOST_POPULAR: "Popular",
   BEST_VALUE: "Best value",
 };
+
+/** "facebook.com" -> "Facebook", "x.com" -> "X" */
+function siteLabel(domain: string) {
+  const host = domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+  const name = host.split(".")[0] || host;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 /**
  * Compact package row: name + badges, one line of facts (time · speed ·
@@ -17,6 +32,7 @@ export function PackageCard({
   pkg,
   currency = "KES",
   maxDevices = 1,
+  blockedDomains,
   locked = false,
   unavailableLabel,
   style,
@@ -25,6 +41,8 @@ export function PackageCard({
   currency?: string;
   /** How many devices can share this package at once (set per-package). */
   maxDevices?: number;
+  /** Sites blocked on student packages (comma-separated), listed in the ⓘ details. */
+  blockedDomains?: string;
   /** Guest who must create a free account before buying this package. */
   locked?: boolean;
   /** Set when the package can't be bought right now (e.g. "Opens 6:00 AM"). */
@@ -65,6 +83,9 @@ export function PackageCard({
             {maxDevices > 1 ? `${maxDevices} devices` : "1 device"}
           </span>
         </p>
+        {pkg.category === "STUDENT" ? (
+          <StudentInfo pkg={pkg} blockedDomains={blockedDomains} />
+        ) : null}
         {locked ? (
           <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-accent">
             <Lock className="size-3" />
@@ -99,5 +120,69 @@ export function PackageCard({
         )}
       </div>
     </article>
+  );
+}
+
+/**
+ * One-line summary under a student package ("Educational access · Social &
+ * entertainment restricted") plus an ⓘ that opens the full explanation and the
+ * list of blocked sites, so the card itself stays uncluttered.
+ */
+function StudentInfo({ pkg, blockedDomains }: { pkg: Package; blockedDomains?: string }) {
+  const sites = Array.from(
+    new Set(
+      (blockedDomains ?? "")
+        .split(",")
+        .map((d) => d.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={`About ${pkg.name}: what is restricted`}
+          className="-ml-1 mt-0.5 inline-flex min-h-8 touch-manipulation items-center gap-1 rounded-md px-1 text-left text-[11px] text-ok hover:underline"
+        >
+          <span>Educational access · Social &amp; entertainment restricted</span>
+          <Info className="size-3.5 shrink-0" />
+        </button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogTitle className="font-display text-lg font-semibold">{pkg.name}</DialogTitle>
+        <DialogDescription className="text-sm text-muted">
+          A low-price package made for studying. Browsing, search, email, school and learning sites
+          work as normal; social and entertainment sites are switched off while it runs.
+        </DialogDescription>
+        {sites.length > 0 ? (
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle">
+              Not available on this package
+            </p>
+            <ul className="flex flex-wrap gap-1.5">
+              {sites.map((d) => (
+                <li
+                  key={d}
+                  title={d}
+                  className="rounded-full border border-border bg-raised px-2.5 py-1 text-xs"
+                >
+                  {siteLabel(d)}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-subtle">
+              These sites, and usually the apps that use them, won't load. Need them? Choose a
+              regular package instead.
+            </p>
+          </div>
+        ) : null}
+        <DialogClose asChild>
+          <Button variant="outline" className="h-11 w-full">
+            Got it
+          </Button>
+        </DialogClose>
+      </DialogContent>
+    </Dialog>
   );
 }

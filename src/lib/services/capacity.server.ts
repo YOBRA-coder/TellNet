@@ -23,7 +23,7 @@ export type EffectiveCapacity = {
   paths: { id: string; name: string; type: string; status: string; totalKbps: number; perUserMaxKbps: number; maxUsers: number; counted: boolean }[];
 };
 
-export async function getEffectiveCapacity(siteId?: string | null): Promise<EffectiveCapacity> {
+export async function getEffectiveCapacity(): Promise<EffectiveCapacity> {
   const sql = await getSql();
   const s = (
     await sql<{ capacity_mode: string | null; isp_total_kbps: number; per_user_max_kbps: number; max_users: number }>`
@@ -37,15 +37,10 @@ export async function getEffectiveCapacity(siteId?: string | null): Promise<Effe
     perUserMaxKbps: Number(s?.per_user_max_kbps) || 5120,
     maxUsers: Number(s?.max_users) || 25,
   };
-  const allIsps = await sql<{ id: string; name: string; type: string; status: string; total_kbps: number; per_user_max_kbps: number; max_users: number; site_id: string | null }>`
-    select id, name, type, status, total_kbps, per_user_max_kbps, max_users, site_id
+  const isps = await sql<{ id: string; name: string; type: string; status: string; total_kbps: number; per_user_max_kbps: number; max_users: number }>`
+    select id, name, type, status, total_kbps, per_user_max_kbps, max_users
     from isps order by sort_order
   `;
-  // With a site given, only that site's ISP lines (plus lines not tied to a site)
-  // count, so one town's capacity is not inflated or used up by another's.
-  // A site with no lines of its own falls back to all of them.
-  const scoped = siteId ? allIsps.filter((i) => !i.site_id || i.site_id === siteId) : allIsps;
-  const isps = scoped.length > 0 ? scoped : allIsps;
   const up = isps.filter((i) => i.status !== "OFFLINE");
   const counted = up.length > 0 ? up : isps;
   const countedIds = new Set(counted.map((i) => i.id));
