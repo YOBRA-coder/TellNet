@@ -336,7 +336,7 @@ function NetworkMapPage() {
                                     className="flex items-center justify-between gap-2 rounded-lg bg-raised px-3 py-2 text-sm"
                                   >
                                     <span className="flex min-w-0 items-center gap-2">
-                                      <Dot state={a.noIncome ? "WARNING" : a.status} />
+                                      <Dot state={!a.port || a.revenue === 0 ? "WARNING" : a.status} />
                                       <Wifi className="size-3.5 shrink-0 text-muted" />
                                       {a.label ? (
                                         <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] font-semibold text-accent">
@@ -345,8 +345,8 @@ function NetworkMapPage() {
                                       ) : null}
                                       <span className="truncate">{a.name}</span>
                                     </span>
-                                    <span className={cn("shrink-0 text-xs", a.noIncome ? "text-warn" : "text-muted")}>
-                                      {a.noIncome
+                                    <span className={cn("shrink-0 text-xs", !a.port || a.revenue === 0 ? "text-warn" : "text-muted")}>
+                                      {!a.port || a.revenue === 0
                                         ? "No income"
                                         : a.clients != null
                                           ? `${a.clients} client${a.clients === 1 ? "" : "s"}`
@@ -719,8 +719,8 @@ function ApTable({
                   </td>
                   <td className="py-2 pr-2">
                     <span className="flex items-center gap-1.5">
-                      <Dot state={a.noIncome ? "WARNING" : a.status} />
-                      {a.noIncome ? "On · no income" : LABEL[a.status]}
+                      <Dot state={!a.port || a.revenue === 0 ? "WARNING" : a.status} />
+                      {!a.port || a.revenue === 0 ? "On · no income" : LABEL[a.status]}
                     </span>
                     {a.latencyMs != null ? <span className="text-[11px] text-subtle">{a.latencyMs} ms</span> : null}
                   </td>
@@ -736,17 +736,7 @@ function ApTable({
                       <>
                         <p className="font-medium">KES {a.revenue.toLocaleString()}</p>
                         <p className="text-[11px] text-subtle">{a.paidCustomers ?? 0} paying</p>
-<<<<<<< HEAD
                         {lowEarners.has(a.id) ? <p className="text-[11px] text-warn">Low earner</p> : null}
-=======
-                        {a.noIncome ? (
-                          <p className="text-[11px] text-warn" title={`Online, but no paying customers in the last ${days} days`}>
-                            No income
-                          </p>
-                        ) : lowEarners.has(a.id) ? (
-                          <p className="text-[11px] text-warn">Low earner</p>
-                        ) : null}
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
                       </>
                     )}
                   </td>
@@ -770,13 +760,9 @@ function ApTable({
           </table>
         </div>
       )}
-      <p className="mt-3 text-xs text-subtle">
-<<<<<<< HEAD
-=======
-        Yellow "On · no income" means the AP is reachable but no paid customers were connected through it in the chosen period (new APs get a day first, and it only shows once the router port is set).
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
-        Status comes from pinging each AP from the router. Client counts and revenue need the AP's router port (each AP on its own port); signal strength is only available for radios built into the MikroTik itself. Revenue is successful M-Pesa payments, split by where each customer was connected, and builds up as customers use the Wi-Fi.
-      </p>
+<p className="mt-3 text-xs text-subtle">
+  Status comes from pinging each AP from the router. Client counts and revenue need the AP's router port (each AP on its own port); signal strength is only available for radios built into the MikroTik itself. Revenue is successful M-Pesa payments, split by where each customer was connected, and builds up as customers use the Wi-Fi.
+</p>
     </Card>
   );
 }
