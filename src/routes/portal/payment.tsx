@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { PurchaseConsent } from "@/components/portal/legal-footer";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -171,6 +172,7 @@ function PaymentPage() {
               ? "Sending prompt…"
               : "Pay with M-Pesa"}
         </Button>
+        <PurchaseConsent />
       </form>
       <Link
         to="/portal/recover"

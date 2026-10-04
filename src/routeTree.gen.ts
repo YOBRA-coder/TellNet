@@ -41,6 +41,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronTickRouteImport } from './routes/api/cron.tick'
 import { Route as ApiMpesaCallbackRouteImport } from './routes/api/mpesa.callback'
 import { Route as ApiPayCallbackRouteImport } from './routes/api/pay.callback'
+import { Route as PortalLegalDocRouteImport } from './routes/portal/legal.$doc'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -202,6 +203,11 @@ const ApiPayCallbackRoute = ApiPayCallbackRouteImport.update({
   path: '/api/pay/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PortalLegalDocRoute = PortalLegalDocRouteImport.update({
+  id: '/legal/$doc',
+  path: '/legal/$doc',
+  getParentRoute: () => PortalRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -236,6 +242,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/mpesa/callback': typeof ApiMpesaCallbackRoute
   '/api/pay/callback': typeof ApiPayCallbackRoute
+  '/portal/legal/$doc': typeof PortalLegalDocRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -268,6 +275,7 @@ export interface FileRoutesByTo {
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/mpesa/callback': typeof ApiMpesaCallbackRoute
   '/api/pay/callback': typeof ApiPayCallbackRoute
+  '/portal/legal/$doc': typeof PortalLegalDocRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/api/cron/tick': typeof ApiCronTickRoute
   '/api/mpesa/callback': typeof ApiMpesaCallbackRoute
   '/api/pay/callback': typeof ApiPayCallbackRoute
+  '/portal/legal/$doc': typeof PortalLegalDocRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -339,6 +348,7 @@ export interface FileRouteTypes {
     | '/api/cron/tick'
     | '/api/mpesa/callback'
     | '/api/pay/callback'
+    | '/portal/legal/$doc'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -371,6 +381,7 @@ export interface FileRouteTypes {
     | '/api/cron/tick'
     | '/api/mpesa/callback'
     | '/api/pay/callback'
+    | '/portal/legal/$doc'
   id:
     | '__root__'
     | '/'
@@ -405,6 +416,7 @@ export interface FileRouteTypes {
     | '/api/cron/tick'
     | '/api/mpesa/callback'
     | '/api/pay/callback'
+    | '/portal/legal/$doc'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -644,6 +656,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPayCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/portal/legal/$doc': {
+      id: '/portal/legal/$doc'
+      path: '/legal/$doc'
+      fullPath: '/portal/legal/$doc'
+      preLoaderRoute: typeof PortalLegalDocRouteImport
+      parentRoute: typeof PortalRouteRoute
+    }
   }
 }
 
@@ -694,6 +713,7 @@ interface PortalRouteRouteChildren {
   PortalRewardsRoute: typeof PortalRewardsRoute
   PortalVoucherRoute: typeof PortalVoucherRoute
   PortalIndexRoute: typeof PortalIndexRoute
+  PortalLegalDocRoute: typeof PortalLegalDocRoute
 }
 
 const PortalRouteRouteChildren: PortalRouteRouteChildren = {
@@ -709,6 +729,7 @@ const PortalRouteRouteChildren: PortalRouteRouteChildren = {
   PortalRewardsRoute: PortalRewardsRoute,
   PortalVoucherRoute: PortalVoucherRoute,
   PortalIndexRoute: PortalIndexRoute,
+  PortalLegalDocRoute: PortalLegalDocRoute,
 }
 
 const PortalRouteRouteWithChildren = PortalRouteRoute._addFileChildren(

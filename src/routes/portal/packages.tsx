@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { PackageBrowser } from "@/components/portal/package-browser";
+import { PurchaseConsent } from "@/components/portal/legal-footer";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { useDevice } from "@/hooks/use-device";
 import { readSite } from "@/lib/device";
@@ -74,6 +75,7 @@ function PackagesPage() {
               operating={q.data?.operating ?? null}
               studentBlockedDomains={settings.studentBlockedDomains}
             />
+            <PurchaseConsent className="mt-4" />
           </div>
         </>
       )}

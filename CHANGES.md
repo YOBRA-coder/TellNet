@@ -1,5 +1,10 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
 
+- **Legal pages and footer** (client text, 4 Oct 2026, unchanged pending their confirmation): read-only pages at `/portal/legal/privacy`, `/terms`,
+  `/acceptable-use`, `/refund` and `/contact` (contact shows the support phone / WhatsApp / message from Settings). Every customer-portal page now ends with
+  "© 2026 HI-FI Wi-Fi" and links to all five. "By purchasing a package, you agree to the HI-FI Terms & Conditions and Privacy Policy." appears under the
+  Pay button and under the package lists. To edit the wording later, change the text in `src/content/legal.ts` only.
+
 - **M-Pesa go-live hardening** (migration `0031_mpesa_till.sql`): Settings -> M-Pesa now has **Account type** (Paybill or Till/Buy Goods; Till sends
   `CustomerBuyGoodsOnline` with the till number as PartyB), a **Check M-Pesa setup** button (asks Safaricom for a token with the saved credentials,
   flags sandbox values left in live mode, http callback, missing fields) and a **KES 1 test prompt** to your own phone. On production the callback is no

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Home } from "lucide-react";
 
 import { TelNetMark } from "@/components/brand";
+import { LegalFooter } from "@/components/portal/legal-footer";
 
 export function PortalShell({
   hotspotName,
@@ -111,12 +112,11 @@ export function PortalShell({
         {children}
       </main>
 
-      {/* Footer */}
-      {footer && (
-        <footer className="mx-auto w-full max-w-md px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          {footer}
-        </footer>
-      )}
+      {/* Footer: page-specific links, then the legal links on every page */}
+      <footer className="mx-auto w-full max-w-md px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        {footer}
+        <LegalFooter />
+      </footer>
     </div>
   );
 }

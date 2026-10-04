@@ -1,16 +1,17 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, getRouteApi, Link } from "@tanstack/react-router";
-import { ArrowRight, ShieldCheck, Smartphone, Wifi } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowRight, ShieldCheck, Smartphone, UserCheck, Wifi } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
 import { TelNetMark } from "@/components/brand";
 import { PackageBrowser } from "@/components/portal/package-browser";
 import { Button } from "@/components/ui/button";
-import { APP_NAME, HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import {  HOTSPOT_FALLBACK } from "@/lib/brand-copy";
 import { getPublicHome } from "@/lib/fn/public";
 import { PortalSupportSection } from "@/components/portal/portal-shell";
 import { readSite } from "@/lib/device";
 import { getPortalBootstrap } from "@/lib/fn/portal";
 import { useDevice } from "@/hooks/use-device";
+import { LegalFooter, PurchaseConsent } from "@/components/portal/legal-footer";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -26,22 +27,22 @@ function Home() {
 
   const { device, ready, update } = useDevice();
 
-const q = useQuery({
-  queryKey: ["portal", device?.token, readSite() ?? ""],
-  enabled: ready && Boolean(device),
-  queryFn: () =>
-    getPortalBootstrap({
-      data: {
-        token: device!.token,
-        phone: device?.phone ?? undefined,
-        customerId: device?.customerId ?? undefined,
-        site: readSite(),
-      },
-    }),
-});
+  const q = useQuery({
+    queryKey: ["portal", device?.token, readSite() ?? ""],
+    enabled: ready && Boolean(device),
+    queryFn: () =>
+      getPortalBootstrap({
+        data: {
+          token: device!.token,
+          phone: device?.phone ?? undefined,
+          customerId: device?.customerId ?? undefined,
+          site: readSite(),
+        },
+      }),
+  });
 
-const settings = (q.data?.settings ?? {}) as Record<string, any>;
-const packages = q.data?.packages ?? [];
+  const settings = (q.data?.settings ?? {}) as Record<string, any>;
+  const packages = q.data?.packages ?? [];
 
 
   useEffect(() => {
@@ -70,14 +71,13 @@ const packages = q.data?.packages ?? [];
     <div className="atmosphere min-h-dvh">
       {/* Dynamic Smart Header */}
       <header
-        className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${
-          isVisible ? "translate-y-0" : "-translate-y-full"
-        }`}
+        className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${isVisible ? "translate-y-0" : "-translate-y-full"
+          }`}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
           <Link to="/" className="flex items-center gap-2">
             <TelNetMark className="size-8" />
-            <span className="font-display text-lg font-semibold">{APP_NAME}</span>
+            <span className="font-display text-lg font-semibold">{hotspot}</span>
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/portal" className="text-muted hover:text-fg">
@@ -92,7 +92,7 @@ const packages = q.data?.packages ?? [];
 
       <section className="mx-auto max-w-5xl px-5 pb-10 pt-6 sm:pt-12">
         <p className="text-xs font-medium uppercase tracking-[0.22em] text-accent">
-          {hotspot}
+           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> {" "} {hotspot}
         </p>
         <h1 className="mt-4 max-w-2xl font-display text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
           {data?.welcomeMessage ?? "Welcome to Wi-Fi"}
@@ -139,15 +139,18 @@ const packages = q.data?.packages ?? [];
               ))}
             </div>
           ) : (
-            <PackageBrowser
-              packages={packages}
-              currency={settings?.currency ?? currency}
-              registered={q.data ? Boolean(q.data.member?.registered) : null}
-              requireAccountForMulti={Boolean(settings?.requireAccountMultiDevice)}
-              rewardsOn={Boolean(settings?.loyaltyEnabled || settings?.referralEnabled)}
-              operating={q.data?.operating ?? null}
-              studentBlockedDomains={settings?.studentBlockedDomains}
-            />
+            <>
+              <PackageBrowser
+                packages={packages}
+                currency={settings?.currency ?? currency}
+                registered={q.data ? Boolean(q.data.member?.registered) : null}
+                requireAccountForMulti={Boolean(settings?.requireAccountMultiDevice)}
+                rewardsOn={Boolean(settings?.loyaltyEnabled || settings?.referralEnabled)}
+                operating={q.data?.operating ?? null}
+                studentBlockedDomains={settings?.studentBlockedDomains}
+              />
+              <PurchaseConsent className="mt-4" />
+            </>
           )}
         </div>
 
@@ -188,13 +191,35 @@ const packages = q.data?.packages ?? [];
         ) : null}
       </div>
 
-      <footer className="mx-auto flex max-w-5xl items-center justify-between px-5 pb-10 text-xs text-subtle">
-        <span>
-          {APP_NAME} · Independent of the ISP path carrying your traffic
-        </span>
-        <Link to="/login" className="text-subtle/40 hover:text-subtle">
-          Operator
-        </Link>
+
+
+<div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-6 pb-12 text-xs tracking-wide text-subtle/80 antialiased">
+  {/* Left Section: Dot and Shortened Text */}
+  <div className="flex min-w-0 items-center gap-2">
+    <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" />
+    
+    {/* min-w-0 + truncate prevents layout blowout on small widths */}
+    <div className="truncate font-normal">
+      <strong className="font-semibold text-main">{hotspot}</strong>
+      <span className="mx-1.5 text-subtle/30">·</span>
+      <span className="text-subtle/60">Independent of your ISP</span>
+    </div>
+  </div>
+  
+  {/* Right Section: Compact Inline Button */}
+  <Link 
+    to="/login" 
+    className="inline-flex shrink-0 items-center justify-center gap-1 rounded-full border border-subtle/10 bg-subtle/5 px-2.5 py-1 font-medium text-subtle/60 transition-all duration-200 hover:border-subtle/20 hover:bg-subtle/10 hover:text-main focus:outline-none focus:ring-2 focus:ring-subtle/20"
+  >
+    <UserCheck className="h-3 w-3 shrink-0" />
+    <span>Operator</span>
+  </Link>
+</div>
+
+
+      <footer className="mx-auto w-full max-w-md px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        
+        <LegalFooter />
       </footer>
     </div>
   );

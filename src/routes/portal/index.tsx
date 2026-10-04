@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PackageBrowser } from "@/components/portal/package-browser";
+import { PurchaseConsent } from "@/components/portal/legal-footer";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
@@ -133,7 +134,7 @@ function PortalHome() {
           <Link to="/portal/recover" className="text-muted hover:text-fg">
             Already paid? Recover my package
           </Link>
-          <Link to="/portal/connect" className="text-subtle hover:text-fg">
+          <Link to="/portal/connect" className="text-muted hover:text-fg">
             Returning customer — connect
           </Link>
           <Link to="/portal/voucher" className="text-muted hover:text-fg">
@@ -192,7 +193,7 @@ function PortalHome() {
         </div>
       </div>
       <p className="text-center text-xs font-medium uppercase tracking-[0.22em] text-accent">
-        {hotspot}
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> {" "}  {hotspot}
       </p>
       <h1 className="mt-3 text-center font-display text-4xl font-semibold tracking-tight">
         {settings.welcomeMessage ?? "Welcome to Wi-Fi"}
@@ -222,6 +223,7 @@ function PortalHome() {
               operating={q.data?.operating ?? null}
               studentBlockedDomains={settings.studentBlockedDomains}
             />
+            <PurchaseConsent className="mt-4" />
           </div>
         </>
       )}
