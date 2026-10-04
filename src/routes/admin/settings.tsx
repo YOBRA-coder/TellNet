@@ -497,8 +497,7 @@ function SettingsPage() {
         </Field>
         {form.mpesaEnv === "production" ? (
           <p className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn">
-            Live mode: sandbox keys, passkey and shortcode (174379) will not work here. Paste your
-            production Consumer key, Consumer secret, Passkey and your real shortcode, save, then press
+            Live mode: Paste your production Consumer key, Consumer secret, Passkey and your real shortcode, save, then press
             "Check M-Pesa setup" below.
           </p>
         ) : null}
