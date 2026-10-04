@@ -177,15 +177,15 @@ function CustomersPage() {
     mutationFn: (input: {
       customerId: string;
       action:
-        | "disconnect"
-        | "block"
-        | "unblock"
-        | "extend"
-        | "changePackage"
-        | "retry"
-        | "releaseDevice"
-        | "resetPin"
-        | "delete";
+      | "disconnect"
+      | "block"
+      | "unblock"
+      | "extend"
+      | "changePackage"
+      | "retry"
+      | "releaseDevice"
+      | "resetPin"
+      | "delete";
       minutes?: number;
       packageId?: string;
       pin?: string;
@@ -322,8 +322,6 @@ function CustomersPage() {
           <option value="PHONE">Phone number</option>
         </select>
       </div>
-<<<<<<< HEAD
-=======
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
         <span>
           Showing {filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–
@@ -336,11 +334,10 @@ function CustomersPage() {
           </Button>
         ) : null}
       </div>
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
-            <TableRow  className="whitespace-nowrap">
+            <TableRow className="whitespace-nowrap">
               <TableHead>Phone</TableHead>
               <TableHead>Package</TableHead>
               <TableHead>Packages bought</TableHead>
@@ -361,12 +358,8 @@ function CustomersPage() {
                 </TableCell>
               </TableRow>
             ) : null}
-<<<<<<< HEAD
-            {filtered.map((row) => (
-=======
             {visibleRows.map((row) => (
->>>>>>> 2b6d0321 (fix data migration for outage credit and add new migrations for hours ap revenue, reset ap label package sites, and outage server. Update various services and components to support these changes.)
-              <TableRow key={row.customer.id}  className="whitespace-nowrap">
+              <TableRow key={row.customer.id} className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
                   {formatPhoneDisplay(row.customer.phone)}
                 </TableCell>
