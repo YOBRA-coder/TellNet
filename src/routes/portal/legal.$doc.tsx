@@ -2,7 +2,7 @@ import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { LEGAL_BRAND, LEGAL_BY_SLUG, parseLegalBody, type LegalSlug } from "@/content/legal";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME, HOTSPOT_FALLBACK } from "@/lib/brand-copy";
 
 const portalRoute = getRouteApi("/portal");
 
@@ -22,7 +22,7 @@ function LegalPage() {
 
   if (!d) {
     return (
-      <PortalShell hotspotName={hotspot} maintenanceMode={settings.maintenanceMode} maintenanceMessage={settings.maintenanceMessage}>
+      <PortalShell hotspotName={hotspot.split(" ")[0] ?? APP_NAME} maintenanceMode={settings.maintenanceMode} maintenanceMessage={settings.maintenanceMessage}>
         <h1 className="font-display text-2xl font-semibold">Page not found</h1>
         <Link to="/portal" className="mt-4 text-sm text-accent">
           Back to packages
@@ -36,7 +36,7 @@ function LegalPage() {
   const hasContact = Boolean(settings.supportPhone || settings.supportWhatsapp || settings.supportMessage);
 
   return (
-    <PortalShell hotspotName={hotspot} maintenanceMode={settings.maintenanceMode} maintenanceMessage={settings.maintenanceMessage}>
+    <PortalShell hotspotName={hotspot.split(" ")[0] ?? APP_NAME} maintenanceMode={settings.maintenanceMode} maintenanceMessage={settings.maintenanceMessage}>
       <Link
         to="/portal"
         className="-ml-1 mb-3 inline-flex min-h-10 touch-manipulation items-center gap-1.5 text-sm text-muted hover:text-fg"

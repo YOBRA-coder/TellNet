@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 import { changePin, dismissNotices, getRewards, redeemPoints, signOut } from "@/lib/fn/portal";
 import { formatStamp } from "@/lib/format";
 import { formatPhoneDisplay } from "@/lib/phone";
@@ -87,7 +87,7 @@ function RewardsPage() {
   });
 
   return (
-    <PortalShell hotspotName={d?.hotspotName ?? HOTSPOT_FALLBACK}>
+    <PortalShell hotspotName={d?.hotspotName.split(" ")[0] ?? APP_NAME}>
       <h1 className="font-display text-3xl font-semibold tracking-tight">Rewards</h1>
 
       {q.isLoading || !d ? (

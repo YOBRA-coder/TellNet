@@ -126,7 +126,7 @@ function PortalHome() {
 
   return (
     <PortalShell
-      hotspotName={hotspot}
+      hotspotName={hotspot.split(" ")[0] ?? HOTSPOT_FALLBACK}
       maintenanceMode={settings.maintenanceMode}
       maintenanceMessage={settings.maintenanceMessage}
       footer={

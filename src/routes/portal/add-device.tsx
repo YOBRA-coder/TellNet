@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
 import { deviceInfo } from "@/lib/device";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 import { isKenyanPhone } from "@/lib/phone";
 import { joinHostPackage } from "@/lib/fn/portal";
 
@@ -50,7 +50,7 @@ function AddDevicePage() {
   });
 
   return (
-    <PortalShell hotspotName={HOTSPOT_FALLBACK}>
+    <PortalShell hotspotName={APP_NAME}>
       <p className="text-xs font-medium uppercase tracking-[0.2em] text-subtle">
         Add a device
       </p>

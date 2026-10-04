@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 
 export const Route = createFileRoute("/portal/expired")({
   component: ExpiredPage,
@@ -9,7 +9,7 @@ export const Route = createFileRoute("/portal/expired")({
 
 function ExpiredPage() {
   return (
-    <PortalShell hotspotName={HOTSPOT_FALLBACK}>
+    <PortalShell hotspotName={APP_NAME}>
       <p className="text-xs font-medium uppercase tracking-[0.2em] text-subtle">
         Session ended
       </p>

@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
 import { formatKes } from "@/lib/format";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { getPaymentStatus } from "@/lib/fn/portal";
 
@@ -58,7 +58,7 @@ function PaymentStatusPage() {
   }, [payment, access, navigate]);
 
   return (
-    <PortalShell hotspotName={HOTSPOT_FALLBACK}>
+    <PortalShell hotspotName={APP_NAME}>
       <p className="text-xs font-medium uppercase tracking-[0.2em] text-subtle">
         Payment status
       </p>

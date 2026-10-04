@@ -12,6 +12,7 @@ import { formatDuration, formatKes, formatSpeed } from "@/lib/format";
 import { getPortalBootstrap, startPayment } from "@/lib/fn/portal";
 import { formatPhoneDisplay, isKenyanPhone } from "@/lib/phone";
 import type { Package } from "@/lib/types";
+import { APP_NAME } from "@/lib/brand-copy";
 
 const portalRoute = getRouteApi("/portal");
 
@@ -89,7 +90,7 @@ function PaymentPage() {
 
   return (
     <PortalShell
-      hotspotName={settings.hotspotName}
+      hotspotName={settings.hotspotName.split(" ")[0] ?? APP_NAME}
       maintenanceMode={settings.maintenanceMode}
       maintenanceMessage={settings.maintenanceMessage}
     >

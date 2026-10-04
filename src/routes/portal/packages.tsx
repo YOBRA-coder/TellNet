@@ -6,7 +6,8 @@ import { PortalShell, PortalSupportSection } from "@/components/portal/portal-sh
 import { useDevice } from "@/hooks/use-device";
 import { readSite } from "@/lib/device";
 import { getPortalBootstrap } from "@/lib/fn/portal";
-import type { Package } from "@/lib/types";
+import { APP_NAME } from "@/lib/brand-copy";
+
 
 const portalRoute = getRouteApi("/portal");
 
@@ -31,7 +32,7 @@ function PackagesPage() {
 
   return (
     <PortalShell
-      hotspotName={settings.hotspotName}
+      hotspotName={settings.hotspotName.split(" ")[0] ?? APP_NAME}
       maintenanceMode={settings.maintenanceMode}
       maintenanceMessage={settings.maintenanceMessage}
       footer={

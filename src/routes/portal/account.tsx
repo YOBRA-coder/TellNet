@@ -6,7 +6,7 @@ import { ActivationBadge } from "@/components/status-badge";
 import { useDevice } from "@/hooks/use-device";
 import { formatPhoneDisplay } from "@/lib/phone";
 import { formatRemaining, formatSpeed, formatStamp } from "@/lib/format";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { getAccount } from "@/lib/fn/portal";
 
@@ -40,7 +40,7 @@ function AccountPage() {
   const rewardsOn = Boolean(q.data?.loyaltyEnabled || q.data?.referralEnabled);
 
   return (
-    <PortalShell hotspotName={q.data?.hotspotName ?? HOTSPOT_FALLBACK}>
+    <PortalShell hotspotName={q.data?.hotspotName?.split(" ")[0] ?? APP_NAME}>
       <h1 className="font-display text-3xl font-semibold tracking-tight">
         Your package
       </h1>

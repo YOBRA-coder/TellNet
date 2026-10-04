@@ -22,7 +22,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "TelNet Wi-Fi — pay with M-Pesa, connect, stay online. ISP-agnostic hotspot billing.",
+          APP_NAME + " Wi-Fi — pay with M-Pesa, connect, stay online. ISP-agnostic hotspot billing.",
       },
       { name: "theme-color", content: "#09090b" },
     ],

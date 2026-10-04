@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDevice } from "@/hooks/use-device";
 import { deviceInfo } from "@/lib/device";
 import { formatRemaining, formatStamp } from "@/lib/format";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
 import { connectActive, getAccount } from "@/lib/fn/portal";
 
@@ -58,7 +58,7 @@ function ConnectPage() {
 
   if (!ready || account.isLoading) {
     return (
-      <PortalShell hotspotName={HOTSPOT_FALLBACK}>
+      <PortalShell hotspotName={APP_NAME}>
         <Skeleton className="mx-auto size-16 rounded-full" />
         <Skeleton className="mx-auto mt-5 h-10 w-56" />
         <Skeleton className="mt-8 h-40 w-full rounded-2xl" />
@@ -67,7 +67,7 @@ function ConnectPage() {
   }
 
   return (
-    <PortalShell hotspotName={account.data?.hotspotName ?? HOTSPOT_FALLBACK}>
+    <PortalShell hotspotName={account.data?.hotspotName.split(" ")[0] ?? APP_NAME}>
       {connected ? (
         <>
           <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-ok/15 text-ok">

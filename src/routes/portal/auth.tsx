@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
 import { resetPasswordWithReceipt, signIn, signUp } from "@/lib/fn/portal";
-import { HOTSPOT_FALLBACK } from "@/lib/brand-copy";
+import { APP_NAME } from "@/lib/brand-copy";
 import { isKenyanPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 
@@ -253,7 +253,7 @@ function AuthPage() {
 
   return (
     <PortalShell
-      hotspotName={HOTSPOT_FALLBACK}
+      hotspotName={APP_NAME}
     >
       <h1 className="font-display text-3xl font-semibold tracking-tight">
         {mode === "signup"

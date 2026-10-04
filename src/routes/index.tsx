@@ -77,7 +77,7 @@ function Home() {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
           <Link to="/" className="flex items-center gap-2">
             <TelNetMark className="size-8" />
-            <span className="font-display text-lg font-semibold">{hotspot}</span>
+            <span className="font-display text-lg font-semibold">{hotspot.split(" ")[0]}</span>
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/portal" className="text-muted hover:text-fg">
