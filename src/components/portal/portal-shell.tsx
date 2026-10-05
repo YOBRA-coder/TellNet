@@ -28,7 +28,7 @@ export function PortalShell({
           sticky top-0 z-50
           flex items-center justify-between
           border-b border-white/10
-          bg-white/5
+          bg-white/[0.02]
           px-5
           pb-2
           pt-[max(0.75rem,env(safe-area-inset-top))]

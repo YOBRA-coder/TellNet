@@ -151,9 +151,9 @@
 
   /* Re-point the design tokens to translucent glass inside this scope.
      Every bg-surface / bg-raised / border-border utility follows. */
-  --color-surface: rgb(10 28 36 / 0.30);
-  --color-raised: rgb(255 255 255 / 0.10);
-  --color-border: rgb(94 234 212 / 0.22);
+  --color-surface: rgb(255 255 255 / 0.035);
+  --color-raised: rgb(255 255 255 / 0.06);
+  --color-border: rgb(255 255 255 / 0.18);
   --color-line: rgb(255 255 255 / 0.1);
   --color-muted: #c4c4cc;
   --color-subtle: #9a9aa6;
@@ -168,8 +168,15 @@
 .glass-theme::before {
   content: "";
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100lvh; /* largest viewport: image never resizes/shifts when the mobile address bar hides */
   z-index: -1;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0); /* own compositor layer: stays put while scrolling */
+  will-change: transform;
   background:
     linear-gradient(to bottom, rgb(5 6 13 / 0.04), rgb(5 6 13 / 0.2)),
     var(--portal-bg) center top / cover no-repeat,
@@ -179,9 +186,10 @@
 /* Frosted blur on every glass surface (not on hover-only classes). */
 .glass-theme [class*="bg-surface"]:not([class*="hover:bg-surface"]),
 .glass-theme [class*="bg-raised"]:not([class*="hover:bg-raised"]) {
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 10px 30px -18px rgb(0 0 0 / 0.7);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.5);
 }
 
 /* Text that sits directly on the image stays readable */
@@ -194,13 +202,13 @@
 
 /* Soft top-light on the glass cards, like the reference design */
 .glass-theme article {
-  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.01));
+  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0));
 }
 
 /* Hover states stay glassy instead of turning solid */
 .glass-theme .hover\:bg-surface:hover,
 .glass-theme .hover\:bg-raised:hover {
-  background-color: rgb(255 255 255 / 0.12);
+  background-color: rgb(255 255 255 / 0.08);
 }
 
 /* Browsers without backdrop-filter: use a darker fill so text stays readable */
@@ -228,8 +236,8 @@
 /* Toasts on public pages only (body.glass-public is set by useGlassBody).
    !important is needed because the Toaster sets its colours inline. */
 body.glass-public [data-sonner-toast] {
-  background: rgb(12 14 28 / 0.55) !important;
-  border: 1px solid rgb(255 255 255 / 0.2) !important;
+  background: rgb(12 14 28 / 0.3) !important;
+  border: 1px solid rgb(255 255 255 / 0.22) !important;
   color: #f4f4f5 !important;
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
