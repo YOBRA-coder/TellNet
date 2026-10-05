@@ -52,7 +52,7 @@ export function PackageCard({
   return (
     <article
       style={style}
-      className={`card-pop flex items-center gap-3 rounded-xl border bg-surface px-3.5 py-3 transition-colors hover:border-accent/50 ${
+      className={`card-pop flex items-center gap-3 rounded-2xl border bg-surface px-4 py-3.5 transition-colors hover:border-accent/50 ${
         pkg.badge ? "border-accent/40" : "border-border"
       } ${unavailableLabel ? "opacity-60" : ""}`}
     >
@@ -149,7 +149,7 @@ function StudentInfo({ pkg, blockedDomains }: { pkg: Package; blockedDomains?: s
           <Info className="size-3.5 shrink-0" />
         </button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent glass>
         <DialogTitle className="font-display text-lg font-semibold">{pkg.name}</DialogTitle>
         <DialogDescription className="text-sm text-muted">
           A low-price package made for studying. Browsing, search, email, school and learning sites
@@ -165,7 +165,7 @@ function StudentInfo({ pkg, blockedDomains }: { pkg: Package; blockedDomains?: s
                 <li
                   key={d}
                   title={d}
-                  className="rounded-full border border-border bg-raised px-2.5 py-1 text-xs"
+                  className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs"
                 >
                   {siteLabel(d)}
                 </li>

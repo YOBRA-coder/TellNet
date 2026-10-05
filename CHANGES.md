@@ -1,5 +1,13 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
 
+- **Glass theme for the public pages** (client request, 4 Oct 2026): the customer portal (`/portal/*`) and the public home page now use a translucent
+  "glass" look over a dark space background: frosted cards, pill device tabs, teal accents, glass header. Admin/operator pages are NOT touched (they never
+  get the `glass-theme` class). Everything is in the `.glass-theme` block at the end of `src/styles.css`; to change the background image, replace
+  `public/portal-bg.jpg` (portrait, about 720x1280, keep it under ~100 KB so it loads fast on hotspot data). The default is the client's reference image
+  (nebula, network mesh, phone in hand) with its on-image text/cards removed, shown with a light overlay so the glass cards show it through them. No logic or features were changed.
+  Pop-up dialogs on public pages (student-package info) and toast messages on public pages also use glass; admin dialogs/toasts are unchanged
+  (`<DialogContent glass>` is opt-in; toasts are styled only while `body.glass-public` is set by public pages).
+
 - **Legal pages and footer** (client text, 4 Oct 2026, unchanged pending their confirmation): read-only pages at `/portal/legal/privacy`, `/terms`,
   `/acceptable-use`, `/refund` and `/contact` (contact shows the support phone / WhatsApp / message from Settings). Every customer-portal page now ends with
   "© 2026 HI-FI Wi-Fi" and links to all five. "By purchasing a package, you agree to the HI-FI Terms & Conditions and Privacy Policy." appears under the

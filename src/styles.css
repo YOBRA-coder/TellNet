@@ -137,3 +137,111 @@
     font-size: 0.8rem;
   }
 }
+
+
+/* ------------------------------------------------------------------
+   Glass theme — PUBLIC pages only (customer portal + public home).
+   Applied by adding the `glass-theme` class to the page root; the
+   operator/admin pages never use it, so they are unchanged.
+   To change the background, replace /public/portal-bg.jpg (or point
+   --portal-bg at another image).
+   ------------------------------------------------------------------ */
+.glass-theme {
+  --portal-bg: url("/portal-bg.jpg");
+
+  /* Re-point the design tokens to translucent glass inside this scope.
+     Every bg-surface / bg-raised / border-border utility follows. */
+  --color-surface: rgb(10 28 36 / 0.30);
+  --color-raised: rgb(255 255 255 / 0.10);
+  --color-border: rgb(94 234 212 / 0.22);
+  --color-line: rgb(255 255 255 / 0.1);
+  --color-muted: #c4c4cc;
+  --color-subtle: #9a9aa6;
+
+  position: relative;
+  isolation: isolate;
+  background: #05060d;
+}
+
+/* Fixed background image + dark overlay (a pseudo-element, because
+   background-attachment: fixed is ignored by iOS Safari). */
+.glass-theme::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(to bottom, rgb(5 6 13 / 0.04), rgb(5 6 13 / 0.2)),
+    var(--portal-bg) center top / cover no-repeat,
+    #05060d;
+}
+
+/* Frosted blur on every glass surface (not on hover-only classes). */
+.glass-theme [class*="bg-surface"]:not([class*="hover:bg-surface"]),
+.glass-theme [class*="bg-raised"]:not([class*="hover:bg-raised"]) {
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 10px 30px -18px rgb(0 0 0 / 0.7);
+}
+
+/* Text that sits directly on the image stays readable */
+.glass-theme h1,
+.glass-theme h2,
+.glass-theme main > p,
+.glass-theme section p {
+  text-shadow: 0 1px 14px rgb(0 0 0 / 0.55);
+}
+
+/* Soft top-light on the glass cards, like the reference design */
+.glass-theme article {
+  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.01));
+}
+
+/* Hover states stay glassy instead of turning solid */
+.glass-theme .hover\:bg-surface:hover,
+.glass-theme .hover\:bg-raised:hover {
+  background-color: rgb(255 255 255 / 0.12);
+}
+
+/* Browsers without backdrop-filter: use a darker fill so text stays readable */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-theme {
+    --color-surface: rgb(20 22 34 / 0.88);
+    --color-raised: rgb(28 30 44 / 0.92);
+  }
+}
+
+/* Cheap phones: skip the blur if the user prefers reduced transparency */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-theme {
+    --color-surface: rgb(20 22 34 / 0.92);
+    --color-raised: rgb(28 30 44 / 0.95);
+  }
+  .glass-theme [class*="bg-surface"],
+  .glass-theme [class*="bg-raised"] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+
+/* Toasts on public pages only (body.glass-public is set by useGlassBody).
+   !important is needed because the Toaster sets its colours inline. */
+body.glass-public [data-sonner-toast] {
+  background: rgb(12 14 28 / 0.55) !important;
+  border: 1px solid rgb(255 255 255 / 0.2) !important;
+  color: #f4f4f5 !important;
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border-radius: 1rem !important;
+}
+body.glass-public [data-sonner-toast] [data-description] {
+  color: #d4d4d8 !important;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body.glass-public [data-sonner-toast] { background: rgb(14 16 30 / 0.95) !important; }
+  .glass-dialog { background-color: rgb(14 16 30 / 0.96); }
+}
+.glass-dialog {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 24px 60px -20px rgb(0 0 0 / 0.8);
+}

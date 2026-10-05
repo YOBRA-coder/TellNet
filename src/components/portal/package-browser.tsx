@@ -98,7 +98,7 @@ export function PackageBrowser({
       ) : null}
 
       {known && !registered && promptText && !dismissed ? (
-        <div className="mb-4 flex items-start gap-3 rounded-xl border border-accent/30 bg-accent/5 px-3.5 py-3">
+        <div className="mb-4 flex items-start gap-3 rounded-2xl border border-white/15 bg-white/[0.06] px-4 py-3.5 backdrop-blur-xl">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{promptText}</p>
             <div className="mt-2 flex gap-2">
@@ -137,7 +137,7 @@ export function PackageBrowser({
       ) : null}
 
       {showTabs ? (
-        <div role="tablist" className="mb-3 flex gap-1 rounded-xl border border-border bg-surface p-1">
+        <div role="tablist" className="mb-3 flex gap-1 rounded-full border border-border bg-surface p-1">
           {tabs.map(([key, label, n]) => (
             <button
               key={key}
@@ -146,7 +146,7 @@ export function PackageBrowser({
               aria-selected={filter === key}
               onClick={() => setFilter(key)} // Clean switch, no toggle
               className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition",
+                "flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2 text-xs font-medium transition",
                 filter === key ? "bg-accent text-bg" : "text-muted hover:text-fg",
               )}
             >

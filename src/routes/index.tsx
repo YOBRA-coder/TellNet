@@ -11,11 +11,13 @@ import { PortalSupportSection } from "@/components/portal/portal-shell";
 import { readSite } from "@/lib/device";
 import { getPortalBootstrap } from "@/lib/fn/portal";
 import { useDevice } from "@/hooks/use-device";
+import { useGlassBody } from "@/hooks/use-glass-body";
 import { LegalFooter, PurchaseConsent } from "@/components/portal/legal-footer";
 
 export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
+  useGlassBody();
   const { data } = useQuery({ queryKey: ["home"], queryFn: () => getPublicHome() });
   const hotspot = data?.hotspotName ?? HOTSPOT_FALLBACK;
   // const packages = data?.packages ?? [];
@@ -68,7 +70,7 @@ function Home() {
   }, [lastScrollY]);
 
   return (
-    <div className="atmosphere min-h-dvh">
+    <div className="atmosphere glass-theme min-h-dvh">
       {/* Dynamic Smart Header */}
       <header
         className={`sticky top-0 z-50 border-b border-border/40 bg-surface/80 backdrop-blur-md transition-transform duration-300 ${isVisible ? "translate-y-0" : "-translate-y-full"

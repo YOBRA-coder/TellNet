@@ -25,14 +25,19 @@ DialogOverlay.displayName = "DialogOverlay";
 
 export const DialogContent = React.forwardRef<
   React.ComponentRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    /** Frosted-glass look for customer-facing (public) dialogs. Admin dialogs leave this off. */
+    glass?: boolean;
+  }
+>(({ className, children, glass = false, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={glass ? "bg-black/55 backdrop-blur-sm" : undefined} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-surface p-6 shadow-lift",
+        glass &&
+          "glass-dialog rounded-2xl border-white/20 bg-[#0b0d1a]/60 backdrop-blur-2xl backdrop-saturate-150",
         className,
       )}
       {...props}

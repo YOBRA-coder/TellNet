@@ -4,6 +4,7 @@ import { Home } from "lucide-react";
 
 import { TelNetMark } from "@/components/brand";
 import { LegalFooter } from "@/components/portal/legal-footer";
+import { useGlassBody } from "@/hooks/use-glass-body";
 
 export function PortalShell({
   hotspotName,
@@ -18,19 +19,20 @@ export function PortalShell({
   maintenanceMode?: boolean;
   maintenanceMessage?: string | null;
 }) {
+  useGlassBody();
   return (
-    <div className="atmosphere flex min-h-dvh flex-col">
+    <div className="atmosphere glass-theme flex min-h-dvh flex-col">
       {/* Sticky top navigation */}
       <header
         className="
           sticky top-0 z-50
           flex items-center justify-between
-          border-b border-border/50
-          bg-background/95
+          border-b border-white/10
+          bg-white/5
           px-5
           pb-2
           pt-[max(0.75rem,env(safe-area-inset-top))]
-          backdrop-blur-md
+          backdrop-blur-xl
         "
       >
         {/* Existing portal logo */}
