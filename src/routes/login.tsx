@@ -8,6 +8,16 @@ import { APP_NAME } from "@/lib/brand-copy";
 import { loginOperator } from "@/lib/fn/public";
 import { useOperatorSession } from "@/lib/operator";
 
+/**
+ * Operator login look (code-only switch, not exposed in any UI).
+ *   true  -> glass login card over the background image (/public/portal-bg.jpg)
+ *   false -> same glass login card, but no image (plain dark gradient)
+ * Change the value, rebuild, done.
+ */
+const LOGIN_BACKGROUND_IMAGE = true;
+
+const LOGIN_ROOT = `atmosphere glass-theme ${LOGIN_BACKGROUND_IMAGE ? "" : "glass-no-image"}`;
+
 type Search = { redirect?: string };
 
 export const Route = createFileRoute("/login")({
@@ -28,7 +38,7 @@ function Login() {
 
   if (isPending) {
     return (
-      <main className="atmosphere grid min-h-dvh place-items-center">
+      <main className={`${LOGIN_ROOT} grid min-h-dvh place-items-center`}>
         <div className="h-10 w-48 animate-pulse rounded-md bg-raised" />
       </main>
     );
@@ -57,8 +67,8 @@ function Login() {
   }
 
   return (
-    <main className="atmosphere grid min-h-dvh place-items-center px-5 py-10">
-      <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <main className={`${LOGIN_ROOT} grid min-h-dvh place-items-center px-5 py-10`}>
+      <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <div className="flex flex-col items-center gap-3 text-center">
           <TelNetMark className="h-10 w-10" />
           <div>
@@ -86,7 +96,7 @@ function Login() {
             />
           </div>
           {error ? (
-            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">
+            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
               {error}
             </p>
           ) : null}

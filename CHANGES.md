@@ -1,4 +1,5 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
+- **Operator login glass look**: `/login` now uses the glass theme. A code-only constant `LOGIN_BACKGROUND_IMAGE` at the top of `src/routes/login.tsx` switches the background image on/off (no UI option). The rest of admin is unchanged.
 
 - **Glass theme for the public pages** (client request, 4 Oct 2026): the customer portal (`/portal/*`) and the public home page now use a translucent
   "glass" look over a dark space background: frosted cards, pill device tabs, teal accents, glass header. Admin/operator pages are NOT touched (they never
