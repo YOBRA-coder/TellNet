@@ -98,7 +98,7 @@ export function PackageBrowser({
       ) : null}
 
       {known && !registered && promptText && !dismissed ? (
-        <div className="mb-4 flex items-start gap-3 rounded-2xl border border-white/15 bg-white/[0.03] px-4 py-3.5 backdrop-blur-md">
+        <div className="mb-4 flex items-start gap-3 rounded-2xl border border-white/15 bg-white/[0.015] px-4 py-3.5 backdrop-blur-[6px]">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{promptText}</p>
             <div className="mt-2 flex gap-2">

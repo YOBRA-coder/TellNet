@@ -32,7 +32,7 @@ export function PortalShell({
           px-5
           pb-2
           pt-[max(0.75rem,env(safe-area-inset-top))]
-          backdrop-blur-xl
+          backdrop-blur-md
         "
       >
         {/* Existing portal logo */}
