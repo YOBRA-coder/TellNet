@@ -1,11 +1,44 @@
 import { Link } from "@tanstack/react-router";
-import { Smartphone, X } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Smartphone, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PackageCard } from "@/components/portal/package-card";
 import { cn } from "@/lib/utils";
 import type { Package, PortalOperating } from "@/lib/types";
 
 type Filter = "ALL" | "1" | "2";
+type SortKey = "PRICE_ASC" | "PRICE_DESC" | "DURATION_ASC" | "DURATION_DESC" | "SPEED_DESC" | "VALUE";
+
+const SORT_OPTIONS: [SortKey, string][] = [
+  ["PRICE_ASC", "Price: low to high"],
+  ["PRICE_DESC", "Price: high to low"],
+  ["DURATION_ASC", "Duration: shortest first"],
+  ["DURATION_DESC", "Duration: longest first"],
+  ["SPEED_DESC", "Speed: fastest first"],
+  ["VALUE", "Best value (cheapest per hour)"],
+];
+
+const byPrice = (a: Package, b: Package) => a.price - b.price || a.durationMinutes - b.durationMinutes;
+
+function sortPackages(list: Package[], key: SortKey): Package[] {
+  const out = [...list];
+  switch (key) {
+    case "PRICE_ASC":
+      return out.sort(byPrice);
+    case "PRICE_DESC":
+      return out.sort((a, b) => b.price - a.price || a.durationMinutes - b.durationMinutes);
+    case "DURATION_ASC":
+      return out.sort((a, b) => a.durationMinutes - b.durationMinutes || byPrice(a, b));
+    case "DURATION_DESC":
+      return out.sort((a, b) => b.durationMinutes - a.durationMinutes || byPrice(a, b));
+    case "SPEED_DESC":
+      return out.sort((a, b) => b.downloadKbps - a.downloadKbps || byPrice(a, b));
+    case "VALUE":
+      return out.sort(
+        (a, b) =>
+          a.price / Math.max(a.durationMinutes, 1) - b.price / Math.max(b.durationMinutes, 1) || byPrice(a, b),
+      );
+  }
+}
 
 const DISMISS_KEY = "telnet.guestPromptDismissed";
 
@@ -35,6 +68,7 @@ export function PackageBrowser({
 }) {
   // Set default filter to "1" instead of "ALL"
   const [filter, setFilter] = useState<Filter>("1");
+  const [sort, setSort] = useState<SortKey>("PRICE_ASC"); // cheapest first by default
   const [dismissed, setDismissed] = useState(true); // hidden until we know (avoids a flash)
 
   useEffect(() => {
@@ -51,8 +85,8 @@ export function PackageBrowser({
   const showTabs = single.length > 0 && multi.length > 0;
 
   const shown = useMemo(
-    () => (!showTabs || filter === "ALL" ? packages : filter === "1" ? single : multi),
-    [packages, single, multi, filter, showTabs],
+    () => sortPackages(!showTabs || filter === "ALL" ? packages : filter === "1" ? single : multi, sort),
+    [packages, single, multi, filter, showTabs, sort],
   );
 
   const known = registered !== null;
@@ -156,6 +190,26 @@ export function PackageBrowser({
             </button>
           ))}
         </div>
+      ) : null}
+
+      {packages.length > 1 ? (
+        <label className="relative mb-3 ml-auto flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] py-1 pl-3 pr-2 text-xs text-muted backdrop-blur-md transition focus-within:border-accent/60 hover:bg-white/[0.07]">
+          <ArrowUpDown className="size-3.5 shrink-0" />
+          <span className="shrink-0">Sort by</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="cursor-pointer appearance-none rounded-full bg-transparent py-1 pl-1 pr-5 text-xs font-medium text-fg outline-none"
+            aria-label="Sort packages"
+          >
+            {SORT_OPTIONS.map(([key, label]) => (
+              <option key={key} value={key} className="bg-neutral-900 text-white">
+                {label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3 size-3.5 text-subtle" />
+        </label>
       ) : null}
 
       <div className="flex flex-col gap-2">

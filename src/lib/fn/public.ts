@@ -11,7 +11,7 @@ export const getPublicHome = createServerFn({ method: "GET" }).handler(async () 
   const settings = await getSettings();
   const packages = (
     await sql<SqlRow>`
-      select * from packages where status = 'ACTIVE' order by sort_order, price
+      select * from packages where status = 'ACTIVE' order by price asc, sort_order asc, duration_minutes asc
     `
   ).map(mapPackage);
   const isps = (await sql<SqlRow>`select * from isps order by sort_order`).map(mapIsp);

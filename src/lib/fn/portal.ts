@@ -66,7 +66,7 @@ async function loadCatalog(siteSlug?: string | null) {
           or site_id = ${siteId}
           or exists (select 1 from package_sites ps where ps.package_id = packages.id and ps.site_id = ${siteId})
         )
-      order by sort_order, price
+      order by price asc, sort_order asc, duration_minutes asc
     `
   ).map(mapPackage);
   const isps = (await sql<SqlRow>`select * from isps order by sort_order`).map(mapIsp);
@@ -248,7 +248,7 @@ export const listPortalPackages = createServerFn({ method: "GET" }).handler(
   async () => {
     const sql = await getSql();
     const rows = await sql<SqlRow>`
-      select * from packages where status = 'ACTIVE' order by sort_order, price
+      select * from packages where status = 'ACTIVE' order by price asc, sort_order asc, duration_minutes asc
     `;
     return rows.map(mapPackage) as Package[];
   },
