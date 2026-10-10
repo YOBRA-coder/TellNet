@@ -353,7 +353,54 @@ export const getCustomerHistoryAdmin = createServerFn({ method: "POST" })
       `
     )[0]?.n ?? 0;
 
+    // True totals, so the screen can say "latest 50 of 213" instead of silently cutting off.
+    const totalsRow = (
+      await sql<{ packages: number; payments: number; sessions: number; loyalty: number }>`
+        select
+          (select count(*)::int from customer_packages where customer_id = ${customerId}) as packages,
+          (select count(*)::int from payments where customer_id = ${customerId}) as payments,
+          (select count(*)::int from sessions where customer_id = ${customerId}) as sessions,
+          (select count(*)::int from loyalty_ledger where customer_id = ${customerId}) as loyalty
+      `
+    )[0];
+
+    // Devices switched on through Omada / Ruijie (MAC + which site/hardware).
+    const hardwareDevices = (
+      await sql<{
+        id: string;
+        vendor: string;
+        client_mac: string;
+        status: string;
+        authorized_at: string;
+        expires_at: string;
+        router_name: string | null;
+      }>`
+        select a.id, a.vendor, a.client_mac, a.status, a.authorized_at, a.expires_at, m.name as router_name
+        from hw_authorizations a
+        join customer_packages cp on cp.id = a.customer_package_id
+        left join mikrotiks m on m.id = a.router_id
+        where cp.customer_id = ${customerId}
+        order by a.authorized_at desc
+        limit 20
+      `
+    ).map((d) => ({
+      id: d.id,
+      vendor: asHardwareType(d.vendor),
+      clientMac: d.client_mac,
+      status: d.status,
+      authorizedAt: iso(d.authorized_at),
+      expiresAt: iso(d.expires_at),
+      routerName: d.router_name,
+    }));
+
     return {
+      totals: {
+        packages: Number(totalsRow?.packages ?? 0),
+        payments: Number(totalsRow?.payments ?? 0),
+        sessions: Number(totalsRow?.sessions ?? 0),
+        loyalty: Number(totalsRow?.loyalty ?? 0),
+      },
+      hardwareDevices,
       customer: mapCustomer(customerRows[0]),
       registered: Boolean(customerRows[0].registered_at),
       referralCode: customerRows[0].referral_code

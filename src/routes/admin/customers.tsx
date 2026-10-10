@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { MoreHorizontal, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ActivationBadge, SessionBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +42,8 @@ import {
   listCustomersAdmin,
   listPackagesAdmin,
 } from "@/lib/fn/admin";
-import { formatKes, formatRemaining, formatStamp } from "@/lib/format";
+import { formatBytes, formatDuration, formatKes, formatRemaining, formatStamp } from "@/lib/format";
+import { HARDWARE_LABELS } from "@/lib/hardware";
 import { formatPhoneDisplay, parsePhoneSearch, phoneMatchesSearch } from "@/lib/phone";
 import { SiteSwitcher } from "@/components/admin/site-switcher";
 import { ALL_SITES, useAdminSite } from "@/hooks/use-admin-site";
@@ -347,7 +348,7 @@ function CustomersPage() {
               <TableHead>Expiry</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Connection</TableHead>
-              <TableHead />
+              <TableHead className="sticky right-0 bg-surface" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -361,7 +362,14 @@ function CustomersPage() {
             {visibleRows.map((row) => (
               <TableRow key={row.customer.id}  className="whitespace-nowrap">
                 <TableCell className="font-medium tabular-nums">
-                  {formatPhoneDisplay(row.customer.phone)}
+                  <button
+                    type="button"
+                    className="min-h-10 text-left underline-offset-2 hover:underline"
+                    aria-label={`View history for ${formatPhoneDisplay(row.customer.phone)}`}
+                    onClick={() => setOpenId(row.customer.id)}
+                  >
+                    {formatPhoneDisplay(row.customer.phone)}
+                  </button>
                 </TableCell>
                 <TableCell>
                   {row.pack?.packageName ?? "—"}
@@ -404,10 +412,19 @@ function CustomersPage() {
                 <TableCell>
                   <SessionBadge status={row.connectionStatus} />
                 </TableCell>
-                <TableCell>
+                <TableCell className="sticky right-0 bg-surface shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.25)]">
+                  <div className="flex items-center justify-end gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => setOpenId(row.customer.id)}
+                  >
+                    View
+                  </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" aria-label="Actions">
+                      <Button variant="ghost" size="icon" className="size-10" aria-label="Actions">
                         <MoreHorizontal className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -520,6 +537,7 @@ function CustomersPage() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -603,99 +621,195 @@ function CustomersPage() {
                 ) : null}
               </dl>
 
-              <div className="mt-6">
-                <h3 className="font-display text-sm font-semibold uppercase tracking-wide text-subtle">
-                  All packages ({history.data?.packages.length ?? 0})
-                </h3>
-                {!history.data || history.data.packages.length === 0 ? (
-                  <p className="mt-2 text-sm text-muted">No packages yet.</p>
-                ) : (
-                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto pr-1">
-                    {history.data.packages.map((pk) => (
-                      <div
-                        key={pk.id}
-                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
-                      >
-                        <div>
-                          <p className="font-medium">{pk.packageName}</p>
-                          <p className="text-xs text-subtle">
-                            {formatStamp(pk.startTime)} → {formatStamp(pk.expiryTime)}
-                          </p>
-                        </div>
-                        <Badge
-                          tone={
-                            pk.status === "ACTIVE"
-                              ? "ok"
-                              : pk.status === "QUEUED"
-                                ? "warn"
-                                : "neutral"
-                          }
-                        >
-                          {pk.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="mt-5 grid grid-cols-2 gap-2">
+                <Button
+                  variant="secondary"
+                  className="h-11"
+                  disabled={act.isPending}
+                  onClick={() => act.mutate({ customerId: selected.customer.id, action: "disconnect" })}
+                >
+                  Disconnect
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="h-11"
+                  disabled={act.isPending}
+                  onClick={() => act.mutate({ customerId: selected.customer.id, action: "retry" })}
+                >
+                  Retry activation
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="h-11"
+                  disabled={act.isPending}
+                  onClick={() => {
+                    const c = selected.customer;
+                    setOpenId(null);
+                    openExtend(c.id, c.phone);
+                  }}
+                >
+                  Extend time…
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="h-11"
+                  disabled={act.isPending}
+                  onClick={() => {
+                    const c = selected.customer;
+                    setOpenId(null);
+                    setPinValue("");
+                    setPinFor({ id: c.id, phone: c.phone });
+                  }}
+                >
+                  Reset PIN
+                </Button>
+                {selected.pack && selected.pack.boundDeviceCount > 0 ? (
+                  <Button
+                    variant="outline"
+                    className="h-11"
+                    disabled={act.isPending}
+                    onClick={() => act.mutate({ customerId: selected.customer.id, action: "releaseDevice" })}
+                  >
+                    Release device
+                  </Button>
+                ) : null}
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  disabled={act.isPending}
+                  onClick={() =>
+                    act.mutate({
+                      customerId: selected.customer.id,
+                      action: selected.customer.status === "BLOCKED" ? "unblock" : "block",
+                    })
+                  }
+                >
+                  {selected.customer.status === "BLOCKED" ? "Unblock" : "Block"}
+                </Button>
               </div>
 
-              <div className="mt-6">
-                <h3 className="font-display text-sm font-semibold uppercase tracking-wide text-subtle">
-                  Purchase history
-                </h3>
-                {history.isLoading ? (
-                  <p className="mt-2 text-sm text-muted">Loading…</p>
-                ) : !history.data || history.data.payments.length === 0 ? (
-                  <p className="mt-2 text-sm text-muted">No payments yet.</p>
-                ) : (
-                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto pr-1">
-                    {history.data.payments.map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
-                      >
-                        <div>
-                          <p className="font-medium">{p.packageName}</p>
-                          <p className="text-xs text-subtle">
-                            {formatStamp(p.createdAt)} · {p.status}
-                          </p>
-                        </div>
-                        <p className="tabular-nums">{formatKes(p.amount)}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {history.isError ? (
+                <div className="mt-6 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
+                  Could not load this customer's history.{" "}
+                  <button type="button" className="underline" onClick={() => history.refetch()}>
+                    Try again
+                  </button>
+                </div>
+              ) : null}
 
-              <div className="mt-6">
-                <h3 className="font-display text-sm font-semibold uppercase tracking-wide text-subtle">
-                  Session history
-                </h3>
-                {!history.data || history.data.sessions.length === 0 ? (
-                  <p className="mt-2 text-sm text-muted">No sessions yet.</p>
-                ) : (
-                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto pr-1">
-                    {history.data.sessions.map((s) => (
-                      <div
-                        key={s.id}
-                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
-                      >
-                        <div>
-                          <p className="font-medium">
-                            {formatStamp(s.sessionStart)}
-                          </p>
-                          <p className="max-w-[220px] truncate text-xs text-subtle">
-                            {s.deviceInformation ?? "Unknown device"}
-                          </p>
-                        </div>
-                        <Badge tone={s.status === "ACTIVE" ? "ok" : "neutral"}>
-                          {s.status}
-                        </Badge>
+              {history.data && history.data.hardwareDevices.length > 0 ? (
+                <HistoryList
+                  title="Devices on Omada / Ruijie"
+                  loading={false}
+                  items={history.data.hardwareDevices}
+                  total={history.data.hardwareDevices.length}
+                  empty=""
+                  render={(d) => (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          {HARDWARE_LABELS[d.vendor]}
+                          {d.routerName ? ` · ${d.routerName}` : ""}
+                        </p>
+                        <p className="truncate font-mono text-xs text-subtle">{d.clientMac}</p>
+                        <p className="text-xs text-subtle">
+                          {formatStamp(d.authorizedAt)} → {formatStamp(d.expiresAt)}
+                        </p>
                       </div>
-                    ))}
+                      <Badge tone={d.status === "ACTIVE" ? "ok" : "neutral"}>{d.status}</Badge>
+                    </div>
+                  )}
+                />
+              ) : null}
+
+              <HistoryList
+                title="All packages"
+                loading={history.isLoading}
+                items={history.data?.packages ?? []}
+                total={history.data?.totals.packages ?? 0}
+                empty="No packages yet."
+                render={(pk) => (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{pk.packageName}</p>
+                      <p className="text-xs text-subtle">
+                        {formatStamp(pk.startTime)} → {formatStamp(pk.expiryTime)}
+                      </p>
+                    </div>
+                    <Badge tone={pk.status === "ACTIVE" ? "ok" : pk.status === "QUEUED" ? "warn" : "neutral"}>
+                      {pk.status}
+                    </Badge>
                   </div>
                 )}
-              </div>
+              />
+
+              <HistoryList
+                title="Purchase history"
+                loading={history.isLoading}
+                items={history.data?.payments ?? []}
+                total={history.data?.totals.payments ?? 0}
+                empty="No payments yet."
+                render={(p) => (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{p.packageName}</p>
+                      <p className="text-xs text-subtle">
+                        {formatStamp(p.createdAt)} · {p.status}
+                        {p.status === "SUCCESS" ? ` · ${p.activationStatus.replaceAll("_", " ").toLowerCase()}` : ""}
+                      </p>
+                      <p className="font-mono text-xs text-subtle">{p.mpesaTransactionId ?? "no receipt"}</p>
+                    </div>
+                    <p className="tabular-nums">{formatKes(p.amount)}</p>
+                  </div>
+                )}
+              />
+
+              <HistoryList
+                title="Session history"
+                loading={history.isLoading}
+                items={history.data?.sessions ?? []}
+                total={history.data?.totals.sessions ?? 0}
+                empty="No sessions yet."
+                render={(x) => {
+                  const mins = x.sessionEnd
+                    ? Math.max(0, Math.round((new Date(x.sessionEnd).getTime() - new Date(x.sessionStart).getTime()) / 60_000))
+                    : null;
+                  const used = x.bytesDown + x.bytesUp;
+                  return (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="font-medium">{formatStamp(x.sessionStart)}</p>
+                        <p className="text-xs text-subtle">
+                          {x.sessionEnd ? `Ended ${formatStamp(x.sessionEnd)}` : "Still running"}
+                          {mins != null ? ` · ${formatDuration(mins)}` : ""}
+                          {used > 0 ? ` · ${formatBytes(used)}` : ""}
+                        </p>
+                        <p className="truncate text-xs text-subtle">{x.deviceInformation ?? "Unknown device"}</p>
+                      </div>
+                      <Badge tone={x.status === "ACTIVE" ? "ok" : "neutral"}>{x.status}</Badge>
+                    </div>
+                  );
+                }}
+              />
+
+              <HistoryList
+                title="Loyalty points history"
+                loading={history.isLoading}
+                items={history.data?.loyaltyLedger ?? []}
+                total={history.data?.totals.loyalty ?? 0}
+                empty="No loyalty activity yet."
+                render={(l) => (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{l.reason.replaceAll("_", " ")}</p>
+                      <p className="text-xs text-subtle">{formatStamp(l.created_at)}</p>
+                    </div>
+                    <p className={`tabular-nums ${l.delta < 0 ? "text-danger" : "text-ok"}`}>
+                      {l.delta > 0 ? `+${l.delta}` : l.delta}
+                    </p>
+                  </div>
+                )}
+              />
             </>
           )}
         </SheetContent>
@@ -835,5 +949,53 @@ function Row({ k, v }: { k: string; v: string }) {
       <dt className="text-subtle">{k}</dt>
       <dd className="text-right font-medium">{v}</dd>
     </div>
+  );
+}
+
+/** One history section: first 8 rows, "Show all" for the rest, and an honest total. */
+function HistoryList<T>({
+  title,
+  items,
+  total,
+  empty,
+  loading,
+  render,
+}: {
+  title: string;
+  items: T[];
+  total: number;
+  empty: string;
+  loading: boolean;
+  render: (item: T) => ReactNode;
+}) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, 8);
+  return (
+    <section className="mt-6">
+      <h3 className="font-display text-sm font-semibold uppercase tracking-wide text-subtle">
+        {title} ({Math.max(total, items.length)})
+      </h3>
+      {loading ? (
+        <p className="mt-2 text-sm text-muted">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">{empty}</p>
+      ) : (
+        <>
+          <div className="mt-2 space-y-2">
+            {shown.map((item, i) => (
+              <div key={i}>{render(item)}</div>
+            ))}
+          </div>
+          {items.length > 8 ? (
+            <Button variant="ghost" className="mt-2 h-10 w-full" onClick={() => setAll((v) => !v)}>
+              {all ? "Show fewer" : `Show all ${items.length}`}
+            </Button>
+          ) : null}
+          {total > items.length ? (
+            <p className="mt-1 text-xs text-subtle">Showing the latest {items.length} of {total}.</p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }
