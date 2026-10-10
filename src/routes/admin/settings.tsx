@@ -23,8 +23,20 @@ export const Route = createFileRoute("/admin/settings")({
   component: SettingsPage,
 });
 
+/** Settings are shown one group at a time. All fields stay mounted in the same form, so Save sends exactly what it always did. */
+const TABS = [
+  { id: "portal", label: "Portal", hint: "What customers see and how they connect." },
+  { id: "rewards", label: "Rewards", hint: "Loyalty points, referral bonus and student packages." },
+  { id: "payments", label: "Payments", hint: "M-Pesa (Daraja) setup and test." },
+  { id: "network", label: "Network", hint: "ISP capacity, routers and RADIUS." },
+  { id: "account", label: "Account", hint: "Operator console password." },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
 function SettingsPage() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<TabId>("portal");
+  const show = (g: TabId) => (tab === g ? "" : "hidden");
   const q = useQuery({ queryKey: ["settings"], queryFn: () => getSettingsAdmin() });
   const [form, setForm] = useState({
     hotspotName: "TelNet Wi-Fi",
@@ -168,7 +180,29 @@ function SettingsPage() {
         </p>
       </div>
 
-      <Card className="space-y-4 p-5">
+      <div
+        role="tablist"
+        aria-label="Settings groups"
+        className="sticky top-0 z-10 -mx-1 flex gap-1 overflow-x-auto border-b border-border bg-bg/95 px-1 py-2 backdrop-blur"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium ${
+              tab === t.id ? "border-accent bg-accent/10 text-fg" : "border-border text-muted hover:text-fg"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <p className="-mt-2 text-sm text-muted">{TABS.find((t) => t.id === tab)?.hint}</p>
+
+      <Card className={`space-y-4 p-5 ${show("portal")}`}>
         <h2 className="font-display text-lg font-semibold">Captive portal</h2>
         <Field label="Hotspot name">
           <Input
@@ -196,7 +230,7 @@ function SettingsPage() {
         />
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("network")}`}>
         <h2 className="font-display text-lg font-semibold">ISP capacity</h2>
         <p className="text-sm leading-relaxed text-muted">
           Every ISP path has its own limits (an Airtel 5G line is 15 or 30 Mbps, Starlink is much
@@ -303,7 +337,7 @@ function SettingsPage() {
         <p className="text-xs text-subtle">Save settings to apply changes.</p>
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("portal")}`}>
         <h2 className="font-display text-lg font-semibold">Device sharing</h2>
         <Toggle
           label="One device per package"
@@ -323,7 +357,7 @@ function SettingsPage() {
         ) : null}
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("portal")}`}>
         <h2 className="font-display text-lg font-semibold">Maintenance mode</h2>
         <Toggle
           label="Put the portal in maintenance mode"
@@ -340,7 +374,7 @@ function SettingsPage() {
         </Field>
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("portal")}`}>
         <h2 className="font-display text-lg font-semibold">Captive portal support</h2>
         <p className="text-sm text-muted">
           Shown as a "Need help?" section on the portal. Leave any field blank to
@@ -371,7 +405,7 @@ function SettingsPage() {
         </Field>
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("rewards")}`}>
         <h2 className="font-display text-lg font-semibold">Loyalty points</h2>
         <Toggle
           label="Enable loyalty points"
@@ -396,7 +430,7 @@ function SettingsPage() {
         </p>
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("rewards")}`}>
         <h2 className="font-display text-lg font-semibold">Referral bonus (minutes)</h2>
         <Toggle
           label="Enable referral bonus"
@@ -443,7 +477,7 @@ function SettingsPage() {
         </p>
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("rewards")}`}>
         <h2 className="font-display text-lg font-semibold">Student packages</h2>
         <p className="text-sm text-muted">
           Any package marked "Student" on the Packages page gets its own
@@ -469,7 +503,7 @@ function SettingsPage() {
         </p>
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("payments")}`}>
         <h2 className="font-display text-lg font-semibold">M-Pesa Daraja — live</h2>
         <p className="text-sm text-muted">
           No demo STK. Payments only go out when these credentials are saved.
@@ -627,11 +661,12 @@ function SettingsPage() {
         </div>
       </Card>
 
-      <Card className="space-y-3 p-5">
+      <Card className={`space-y-3 p-5 ${show("network")}`}>
         <h2 className="font-display text-lg font-semibold">MikroTik</h2>
         <p className="text-sm leading-relaxed text-muted">
           Add real routers on the Network page — host, REST user, password and
-          hotspot server. Credentials never leave the server.
+          hotspot server. TP-Link Omada and Ruijie sites are added there too.
+          Credentials never leave the server.
         </p>
         {q.data?.mikrotikHost ? (
           <p className="font-mono text-sm">
@@ -648,7 +683,7 @@ function SettingsPage() {
 
       
       
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("network")}`}>
         <h2 className="font-display text-lg font-semibold">RADIUS (multi-AP)</h2>
         <p className="text-sm text-muted">
           One login works on every access point: the routers ask this app who is allowed online, so a
@@ -765,7 +800,7 @@ function SettingsPage() {
         ) : null}
       </Card>
 
-      <Card className="space-y-4 p-5">
+      <Card className={`space-y-4 p-5 ${show("account")}`}>
         <h2 className="font-display text-lg font-semibold">Operator password</h2>
         <p className="text-sm text-muted">
           Shared password for the operator console. Leave blank to keep the current password.
@@ -780,9 +815,12 @@ function SettingsPage() {
           />
         </Field>
       </Card>
-<Button type="submit" size="lg" disabled={save.isPending}>
-        {save.isPending ? "Saving…" : "Save settings"}
-      </Button>
+<div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-bg/95 px-1 py-3 backdrop-blur">
+        <Button type="submit" size="lg" disabled={save.isPending}>
+          {save.isPending ? "Saving…" : "Save settings"}
+        </Button>
+        <span className="ml-3 text-xs text-muted">Saves every group, not just this one.</span>
+      </div>
     </form>
   );
 }
