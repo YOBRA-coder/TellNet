@@ -37,3 +37,25 @@ These were tested against mock controller/gateway servers, not real devices.
 
 ## Not available on Omada/Ruijie
 Opening hours switch-off, student domain blocking, per-package speed, live router stats (MikroTik-only features).
+<<<<<<< HEAD
+=======
+
+## Network and Network map pages (updated)
+- **Network page**: every site shows a hardware badge. Omada/Ruijie cards show portal mode, devices online and last contact, with a
+  one-click **copy** of the Portal/Server URL; MikroTik-only items (camouflage, WAN interface, CPU/memory, "Use for activations")
+  are hidden for them. Adding an Omada/Ruijie site keeps the dialog open after saving so the URL (it contains the site id) can be copied.
+  Hardware can't be changed on a saved site. Removing a site now asks first.
+- **"Primary router" is MikroTik-only.** Saving, promoting or deleting an Omada/Ruijie site no longer changes which MikroTik is primary
+  (previously it could clear it).
+- **Network map**: Omada/Ruijie sites appear with their badge, status (refreshed on every map refresh), devices online, and are counted in
+  "Active users". Their APs show clients (matched by AP MAC, Omada only) and revenue (Omada only). Ruijie's protocol does not report
+  the AP, so Ruijie APs are a list only. APs on Omada are never pinged, so they show Online while customers are connected, otherwise grey.
+
+## Which hardware serves which site (primary / default)
+- Each customer is switched on by the hardware they connected through: an Omada/Ruijie portal redirect -> that site's vendor driver;
+  anything else -> the MikroTik code path. A sale is only sent to a remembered vendor site when it is the SAME site as the sale
+  (a customer who used an Omada site and then buys at a MikroTik site is served by the MikroTik).
+- "Primary" is a MikroTik-only flag and global (the MikroTik that creates hotspot logins). Omada/Ruijie sites never need it and never change it.
+  A town can use Omada only, Ruijie only or MikroTik only; no per-site "default hardware" setting is needed.
+- Reports -> "Revenue by hardware"; Live users and Transactions show site + hardware and filter by site.
+>>>>>>> 01303452 (fix: fix hardware activation and row service issues)

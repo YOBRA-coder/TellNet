@@ -11,6 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { HARDWARE_LABELS } from "@/lib/hardware";
 import { SiteSwitcher } from "@/components/admin/site-switcher";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -242,6 +243,23 @@ function ReportsPage() {
           </div>
         </Card>
       </div>
+
+      {d && d.byHardware.filter((h) => h.paid > 0).length > 0 &&
+      (d.byHardware.filter((h) => h.paid > 0).length > 1 || d.byHardware.some((h) => h.type !== "mikrotik" && h.paid > 0)) ? (
+        <Card className="p-5">
+          <h2 className="mb-4 font-display text-lg font-semibold">Revenue by hardware · this month</h2>
+          <ul className="divide-y divide-border">
+            {d.byHardware.map((h) => (
+              <li key={h.type} className="flex items-center justify-between py-3 text-sm">
+                <span>{HARDWARE_LABELS[h.type]}</span>
+                <span className="tabular-nums text-muted">
+                  {h.paid} paid · {formatKes(h.revenue)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {d && d.bySite.length > 1 ? (
         <Card className="p-5">

@@ -801,12 +801,14 @@ export const listPaymentsAdmin = createServerFn({ method: "POST" })
         status: z.string().optional(),
         activationStatus: z.string().optional(),
         period: z.enum(["ALL", "TODAY", "WEEK", "MONTH"]).optional(),
+        siteId: z.string().optional(),
       })
       .parse(data),
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
     const ps = await getPeriodStarts();
+    const site = normSite(data.siteId);
     // Phone search: "07…", "7…", "254…" and "+254…" all work. Numbers are stored
     // as 2547XXXXXXXX, so a leading 0 is turned into 254 and matched from the
     // START of the number; anything with letters is searched as an M-Pesa code.
@@ -815,10 +817,13 @@ export const listPaymentsAdmin = createServerFn({ method: "POST" })
     const phoneContains = find.kind === "contains" ? "%" + find.digits + "%" : null;
     const textLike = find.kind === "text" ? "%" + find.text + "%" : null;
     const rows = await sql<SqlRow>`
-      select p.*, pkg.name as package_name
+      select p.*, pkg.name as package_name,
+             coalesce(p.site_id, 'site_default') as pay_site_id, st.name as pay_site_name
       from payments p
       join packages pkg on pkg.id = p.package_id
-      where (
+      left join sites st on st.id = coalesce(p.site_id, 'site_default')
+      where (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
+        and (
           (${phonePrefix}::text is null and ${phoneContains}::text is null and ${textLike}::text is null)
           or regexp_replace(p.phone, '\\D', '', 'g') like ${phonePrefix}::text
           or regexp_replace(p.phone, '\\D', '', 'g') like ${phoneContains}::text
@@ -834,9 +839,17 @@ export const listPaymentsAdmin = createServerFn({ method: "POST" })
           or (${data.period ?? "ALL"} = 'MONTH' and p.created_at >= ${ps.monthStart}::timestamptz)
         )
       order by p.created_at desc
-      limit 200
+      limit 201
     `;
-    return rows.map(mapPayment);
+    // One extra row tells the page there is more than it is showing.
+    return {
+      truncated: rows.length > 200,
+      rows: rows.slice(0, 200).map((r) => ({
+        ...mapPayment(r),
+        siteId: String(r.pay_site_id ?? "site_default"),
+        siteName: String(r.pay_site_name ?? "Main site"),
+      })),
+    };
   });
 
 export const retryPaymentActivation = createServerFn({ method: "POST" })
@@ -859,11 +872,23 @@ export const listLiveUsers = createServerFn({ method: "GET" })
       select
         s.id as session_id, s.customer_id, c.phone, c.status as customer_status,
         s.ip_address, pkg.name as package_name, cp.speed_limit_kbps,
-        s.session_start, cp.expiry_time, s.bytes_down, s.bytes_up, s.status
+        s.session_start, cp.expiry_time, s.bytes_down, s.bytes_up, s.status,
+        h.vendor as hw_vendor, h.client_mac as hw_client_mac, hr.name as hw_router_name,
+        st.id as site_id, st.name as site_name
       from sessions s
       join customers c on c.id = s.customer_id
       join packages pkg on pkg.id = s.package_id
       left join customer_packages cp on cp.id = s.customer_package_id
+      left join payments pay on pay.id = cp.payment_id
+      -- Omada / Ruijie: the device record created when this login was switched on
+      left join lateral (
+        select a.vendor, a.client_mac, a.router_id from hw_authorizations a
+        where a.username = s.mikrotik_username and a.status = 'ACTIVE'
+        order by a.authorized_at desc limit 1
+      ) h on true
+      left join mikrotiks hr on hr.id = h.router_id
+      -- site: the vendor site if there is one, else where the payment was made
+      left join sites st on st.id = coalesce(hr.site_id, pay.site_id, c.site_id, 'site_default')
       where s.status = 'ACTIVE'
       order by s.session_start desc
     `;
@@ -1022,6 +1047,29 @@ export const getReports = createServerFn({ method: "POST" })
         `,
       ]);
 
+    // This month by hardware: a package switched on through an Omada/Ruijie device is that vendor's;
+    // everything else (MikroTik hotspot) is MikroTik. Real M-Pesa money only, same rule as above.
+    const byHardwareRaw = await sql<{ hw: string; revenue: number; paid: number }>`
+      select coalesce(h.vendor, 'mikrotik') as hw,
+             coalesce(sum(p.amount), 0)::int as revenue, count(p.id)::int as paid
+      from payments p
+      left join customer_packages cp on cp.payment_id = p.id
+      left join lateral (
+        select a.vendor from hw_authorizations a
+        where a.customer_package_id = cp.id order by a.authorized_at desc limit 1
+      ) h on true
+      where p.status = 'SUCCESS'
+        and coalesce(p.mpesa_transaction_id, '') not like 'PTS-%'
+        and coalesce(p.mpesa_transaction_id, '') not like 'VCH-%'
+        and p.created_at >= ${ps.monthStart}::timestamptz
+        and (${site}::text is null or coalesce(p.site_id, 'site_default') = ${site})
+      group by 1
+    `;
+    const byHardware = HARDWARE_TYPES.map((t) => {
+      const r = byHardwareRaw.find((x) => asHardwareType(x.hw) === t);
+      return { type: t, revenue: asNumber(r?.revenue), paid: asNumber(r?.paid) };
+    });
+
     const hours = Array.from({ length: 24 }, (_, h) => {
       const row = hourly.find((x) => Number(x.hour) === h);
       return { hour: h, revenue: asNumber(row?.revenue), tx: asNumber(row?.tx) };
@@ -1046,6 +1094,7 @@ export const getReports = createServerFn({ method: "POST" })
         tx: asNumber(d.tx),
       })),
       hours,
+      byHardware,
       bySite: site
         ? []
         : bySite.map((r) => ({

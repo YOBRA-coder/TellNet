@@ -169,6 +169,16 @@ export type LiveUser = {
   bytesUp: number;
   status: SessionStatus;
   customerStatus: CustomerStatus;
+  /** mikrotik | omada | ruijie: the hardware this customer is switched on through */
+  hardwareType: "mikrotik" | "omada" | "ruijie";
+  siteId: string;
+  siteName: string;
+  /** Omada/Ruijie: the vendor site (router row) name; MikroTik: null */
+  routerName: string | null;
+  /** real client MAC (Omada/Ruijie only) */
+  clientMac: string | null;
+  /** false = this hardware cannot report traffic per client (Omada/Ruijie) */
+  hasTraffic: boolean;
 };
 
 export type RouterStatus = "ONLINE" | "OFFLINE" | "UNKNOWN";

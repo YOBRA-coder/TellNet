@@ -103,11 +103,31 @@ export type HardwareTarget = { router: HwRouter; client: ClientContext };
 export async function resolveHardwareTarget(opts: {
   deviceToken?: string | null;
   customerId?: string | null;
+  /**
+   * The site this sale was made at. A remembered Omada/Ruijie redirect only counts when it is for
+   * that same site: a customer who used an Omada site last week and now buys at a MikroTik site
+   * must be switched on by the MikroTik, not sent to the old controller.
+   */
+  siteId?: string | null;
 }): Promise<HardwareTarget | null> {
   const client = await findClientContext(opts);
   if (!client || client.vendor === "mikrotik") return null;
   const router = await getHwRouter(client.routerId);
-  return router ? { router, client } : null;
+  if (!router) return null;
+  if (opts.siteId) {
+    const sql = await getSql();
+    const r = await sql<{ site_id: string | null }>`select site_id from mikrotiks where id = ${router.id} limit 1`;
+    if ((r[0]?.site_id ?? "site_default") !== opts.siteId) {
+      // Only step aside when the sale's own site really has a MikroTik to switch the customer on.
+      // (If the site has none, keep the vendor redirect: the old behaviour, safe if the site was lost.)
+      const mt = await sql<{ n: number }>`
+        select count(*)::int as n from mikrotiks
+        where hardware_type = 'mikrotik' and coalesce(site_id, 'site_default') = ${opts.siteId}
+      `;
+      if (Number(mt[0]?.n) > 0) return null;
+    }
+  }
+  return { router, client };
 }
 
 export async function authorizeOnHardware(

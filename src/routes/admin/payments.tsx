@@ -4,7 +4,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ActivationBadge, PaymentBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { SiteSwitcher } from "@/components/admin/site-switcher";
 import { Input } from "@/components/ui/input";
+import { useAdminSite } from "@/hooks/use-admin-site";
 import {
   Select,
   SelectContent,
@@ -57,12 +59,15 @@ function PaymentsPage() {
   const [activation, setActivation] = useState("ALL");
   const [packageId, setPackageId] = useState("ALL");
   const [period, setPeriod] = useState("ALL");
+  const [siteId] = useAdminSite();
   const pkgs = useQuery({ queryKey: ["packages"], queryFn: () => listPackagesAdmin() });
   const q = useQuery({
-    queryKey: ["payments", phone, status, activation, packageId, period],
+    queryKey: ["payments", phone, status, activation, packageId, period, siteId],
+    placeholderData: (prev) => prev,
     queryFn: () =>
       listPaymentsAdmin({
         data: {
+          siteId,
           phone: phone || undefined,
           status: status === "ALL" ? undefined : status,
           activationStatus: activation === "ALL" ? undefined : activation,
@@ -81,6 +86,26 @@ function PaymentsPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
+
+  const list = q.data?.rows ?? [];
+  // Money = real M-Pesa only (voucher VCH- and points PTS- redemptions are free packages), as on Reports.
+  const isFree = (id: string | null) => Boolean(id && (id.startsWith("VCH-") || id.startsWith("PTS-")));
+  const paidRows = list.filter((p) => p.status === "SUCCESS" && !isFree(p.mpesaTransactionId));
+  const total = paidRows.reduce((n, p) => n + p.amount, 0);
+
+  function exportCsv() {
+    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const head = ["Receipt", "Phone", "Amount", "Package", "Site", "Payment", "Activation", "Date"];
+    const lines = list.map((p) =>
+      [p.mpesaTransactionId, p.phone, p.amount, p.packageName, p.siteName, p.status, p.activationStatus, p.createdAt].map(esc).join(","),
+    );
+    const blob = new Blob([[head.map(esc).join(","), ...lines].join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
 
   return (
     <div className="space-y-5">
@@ -102,15 +127,29 @@ function PaymentsPage() {
           </ul>
         </div>
       )}
-      <div>
-        <h1 className="font-display text-3xl font-semibold tracking-tight">
-          Transactions
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Every M-Pesa attempt is stored. Success never depends on the captive portal
-          reporting back.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">
+            Transactions
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Every M-Pesa attempt is stored. Success never depends on the captive portal
+            reporting back.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <SiteSwitcher />
+          <Button variant="outline" onClick={exportCsv} disabled={list.length === 0}>
+            Export CSV
+          </Button>
+        </div>
       </div>
+      <p className="text-sm text-muted">
+        <span className="font-medium text-fg tabular-nums">{list.length}</span> shown ·{" "}
+        <span className="font-medium text-fg tabular-nums">{formatKes(total)}</span> paid by M-Pesa in this list (
+        {paidRows.length})
+        {q.data?.truncated ? " · only the latest 200 are shown — narrow the filters to see older ones" : ""}
+      </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Input
           placeholder="Phone (07…) or M-Pesa code"
@@ -177,6 +216,7 @@ function PaymentsPage() {
               <TableHead>Phone</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Package</TableHead>
+              <TableHead>Site</TableHead>
               <TableHead>Payment</TableHead>
               <TableHead>Activation</TableHead>
               <TableHead>Date</TableHead>
@@ -184,14 +224,14 @@ function PaymentsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(q.data ?? []).length === 0 && (
+            {list.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-10 text-center text-muted">
+                <TableCell colSpan={9} className="py-10 text-center text-muted">
                   No transactions match these filters.
                 </TableCell>
               </TableRow>
             )}
-            {(q.data ?? []).map((p) => (
+            {list.map((p) => (
               <TableRow key={p.id} className="whitespace-nowrap">
                 <TableCell className="font-mono text-xs">
                   {p.mpesaTransactionId ?? "—"}
@@ -201,6 +241,7 @@ function PaymentsPage() {
                 </TableCell>
                 <TableCell className="tabular-nums">{formatKes(p.amount)}</TableCell>
                 <TableCell>{p.packageName}</TableCell>
+                <TableCell className="text-sm text-muted">{p.siteName}</TableCell>
                 <TableCell>
                   <PaymentBadge status={p.status} />
                 </TableCell>

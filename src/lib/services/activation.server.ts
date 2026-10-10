@@ -4,7 +4,9 @@ import { nid, asNumber } from "@/lib/utils";
 import {
   MikroTikError,
   createAndActivateUser,
+  getRouterCredentialsById,
   randomPassword,
+  rosList,
   usernameForPhone,
 } from "./mikrotik.server";
 import {
@@ -284,6 +286,7 @@ export async function activateFromPayment(
     const hwTarget = await resolveHardwareTarget({
       deviceToken: device?.token,
       customerId: String(pay.customer_id),
+      siteId: pay.site_id ? String(pay.site_id) : null,
     });
     if (hwTarget) {
       hwAuth = await authorizeOnHardware(hwTarget, { username, seconds: remaining });
@@ -560,32 +563,61 @@ export async function blockCustomer(customerId: string) {
   `;
 }
 
+let lastUsageSync = 0;
+
+/**
+ * Bring each live session's traffic and IP up to date from the router itself.
+ *  - MikroTik: the hotspot "active" list (bytes-out = to the customer = Down, bytes-in = Up).
+ *    A customer with two devices on one login has the counters added up.
+ *  - Omada / Ruijie: the controller/gateway does not give us per-client traffic, so nothing
+ *    is invented: the counters stay at 0 and the Live users page shows "n/a" for those rows.
+ * Never throws; an unreachable router just keeps its last known numbers. At most once per 10 s,
+ * however many admin screens are open.
+ */
 export async function tickLiveUsage() {
+  if (Date.now() - lastUsageSync < 10_000) return;
+  lastUsageSync = Date.now();
   const sql = await getSql();
-  const rows = await sql<{
-    id: string;
-    bytes_down: number;
-    bytes_up: number;
-    last_seen: string;
-    speed_limit_kbps: number;
-  }>`
-    select s.id, s.bytes_down, s.bytes_up, s.last_seen, cp.speed_limit_kbps
-    from sessions s
-    join customer_packages cp on cp.id = s.customer_package_id
-    where s.status = 'ACTIVE'
-  `;
-  for (const row of rows) {
-    const last = new Date(row.last_seen).getTime();
-    const elapsed = Math.max(1, (Date.now() - last) / 1000);
-    const cap = Number(row.speed_limit_kbps) * 128; // bytes/sec at full rate
-    const downAdd = Math.floor(cap * (0.08 + Math.random() * 0.35) * elapsed);
-    const upAdd = Math.floor(cap * (0.02 + Math.random() * 0.08) * elapsed);
-    await sql`
-      update sessions
-      set bytes_down = bytes_down + ${downAdd},
-          bytes_up = bytes_up + ${upAdd},
-          last_seen = now()
-      where id = ${row.id}
-    `;
-  }
+  const routers = await sql<{ id: string }>`select id from mikrotiks where hardware_type = 'mikrotik'`;
+  const wanted = new Set(
+    (
+      await sql<{ u: string }>`
+        select distinct mikrotik_username as u from sessions
+        where status = 'ACTIVE' and mikrotik_username is not null
+          and mikrotik_username not in (select username from hw_authorizations)
+      `
+    ).map((r) => r.u),
+  );
+  if (wanted.size === 0) return;
+  await Promise.all(
+    routers.map(async (r) => {
+      try {
+        const creds = await getRouterCredentialsById(r.id);
+        if (!creds) return;
+        const active = await rosList(creds, "/ip/hotspot/active");
+        const totals = new Map<string, { down: number; up: number; ip: string | null }>();
+        for (const a of active) {
+          const user = String(a.user ?? "");
+          if (!wanted.has(user)) continue;
+          const cur = totals.get(user) ?? { down: 0, up: 0, ip: null };
+          cur.down += Number.parseInt(String(a["bytes-out"] ?? "0"), 10) || 0;
+          cur.up += Number.parseInt(String(a["bytes-in"] ?? "0"), 10) || 0;
+          cur.ip = cur.ip ?? (a.address ? String(a.address) : null);
+          totals.set(user, cur);
+        }
+        for (const [user, t] of totals) {
+          await sql`
+            update sessions set
+              bytes_down = greatest(bytes_down, ${t.down}),
+              bytes_up = greatest(bytes_up, ${t.up}),
+              ip_address = coalesce(${t.ip}, ip_address),
+              last_seen = now()
+            where status = 'ACTIVE' and mikrotik_username = ${user}
+          `;
+        }
+      } catch (err) {
+        console.error("[usage]", r.id, err instanceof Error ? err.message : err);
+      }
+    }),
+  );
 }

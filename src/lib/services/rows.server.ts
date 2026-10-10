@@ -229,6 +229,12 @@ export function mapLiveUser(row: SqlRow): LiveUser {
         ? status
         : "ACTIVE",
     customerStatus: row.customer_status === "BLOCKED" ? "BLOCKED" : "ACTIVE",
+    hardwareType: asHardwareType(row.hw_vendor),
+    siteId: String(row.site_id ?? "site_default"),
+    siteName: String(row.site_name ?? "Main site"),
+    routerName: row.hw_router_name ? String(row.hw_router_name) : null,
+    clientMac: row.hw_vendor && row.hw_client_mac ? String(row.hw_client_mac) : null,
+    hasTraffic: !row.hw_vendor,
   };
 }
 

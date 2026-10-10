@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,43 @@ function PackagesAdminPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PackageRow | null>(null);
   const [form, setForm] = useState(empty);
+
+  // List filters (client-side: the package list is small).
+  const [search, setSearch] = useState("");
+  const [siteFilter, setSiteFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [kindFilter, setKindFilter] = useState("ALL");
+  const [catFilter, setCatFilter] = useState("ALL");
+  const [sort, setSort] = useState("DEFAULT");
+
+  const rows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const siteLabel = (ids: string[]) =>
+      ids.length === 0 ? "All sites" : ids.map((id) => sites.find((x) => x.id === id)?.name ?? "").join(", ");
+    let list = ((q.data ?? []) as PackageRow[]).filter((p) => {
+      if (term) {
+        const hay = `${p.name} ${p.price} ${DURATION_KIND_LABEL[p.durationKind]} ${p.category} ${siteLabel(p.siteIds)}`.toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
+      // "Sold at <site>": packages for every site, or ticked for that site.
+      if (siteFilter !== "ALL" && !(p.siteIds.length === 0 || p.siteIds.includes(siteFilter))) return false;
+      if (statusFilter !== "ALL" && p.status !== statusFilter) return false;
+      if (kindFilter !== "ALL" && p.durationKind !== kindFilter) return false;
+      if (catFilter !== "ALL" && p.category !== catFilter) return false;
+      return true;
+    });
+    const by: Record<string, (a: PackageRow, b: PackageRow) => number> = {
+      PRICE_ASC: (a, b) => a.price - b.price,
+      PRICE_DESC: (a, b) => b.price - a.price,
+      NAME: (a, b) => a.name.localeCompare(b.name),
+      DURATION: (a, b) => a.durationMinutes - b.durationMinutes,
+      SPEED: (a, b) => b.downloadKbps - a.downloadKbps,
+      SITE: (a, b) => siteLabel(a.siteIds).localeCompare(siteLabel(b.siteIds)) || a.price - b.price,
+    };
+    if (by[sort]) list = [...list].sort(by[sort]);
+    return list;
+  }, [q.data, sites, search, siteFilter, statusFilter, kindFilter, catFilter, sort]);
+  const filtersOn = Boolean(search) || [siteFilter, statusFilter, kindFilter, catFilter].some((v) => v !== "ALL") || sort !== "DEFAULT";
 
   function siteNames(ids: string[]) {
     if (ids.length === 0) return "All sites";
@@ -160,6 +197,60 @@ function PackagesAdminPage() {
         </div>
         <Button onClick={() => startEdit()}>New package</Button>
       </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <Input
+          className="lg:col-span-2"
+          placeholder="Search name, price, site…"
+          inputMode="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select aria-label="Site" className="h-11 rounded-md border border-border bg-raised px-3 text-sm" value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)}>
+          <option value="ALL">All sites</option>
+          {sites.map((x) => (
+            <option key={x.id} value={x.id}>Sold at {x.name}</option>
+          ))}
+        </select>
+        <select aria-label="Status" className="h-11 rounded-md border border-border bg-raised px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="ALL">Any status</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+        </select>
+        <select aria-label="Duration kind" className="h-11 rounded-md border border-border bg-raised px-3 text-sm" value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <option value="ALL">Any kind</option>
+          {(Object.keys(DURATION_KIND_LABEL) as PackageDurationKind[]).map((k) => (
+            <option key={k} value={k}>{DURATION_KIND_LABEL[k]}</option>
+          ))}
+        </select>
+        <select aria-label="Category" className="h-11 rounded-md border border-border bg-raised px-3 text-sm" value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
+          <option value="ALL">Any category</option>
+          <option value="STANDARD">Standard</option>
+          <option value="STUDENT">Student</option>
+        </select>
+        <select aria-label="Sort by" className="h-11 rounded-md border border-border bg-raised px-3 text-sm sm:col-span-2 lg:col-span-1" value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="DEFAULT">Sort: default</option>
+          <option value="SITE">Sort: by site</option>
+          <option value="PRICE_ASC">Price: low → high</option>
+          <option value="PRICE_DESC">Price: high → low</option>
+          <option value="NAME">Name A–Z</option>
+          <option value="DURATION">Shortest duration</option>
+          <option value="SPEED">Fastest first</option>
+        </select>
+        <div className="flex items-center gap-3 text-sm text-muted sm:col-span-2 lg:col-span-5">
+          <span>Showing {rows.length} of {(q.data ?? []).length}</span>
+          {filtersOn && (
+            <button
+              type="button"
+              className="text-accent underline"
+              onClick={() => {
+                setSearch(""); setSiteFilter("ALL"); setStatusFilter("ALL"); setKindFilter("ALL"); setCatFilter("ALL"); setSort("DEFAULT");
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      </div>
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
@@ -180,7 +271,14 @@ function PackagesAdminPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(q.data ?? []).map((pkg) => (
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={13} className="py-10 text-center text-muted">
+                  No packages match these filters.
+                </TableCell>
+              </TableRow>
+            )}
+            {rows.map((pkg) => (
               <TableRow key={pkg.id} className="whitespace-nowrap">
                 <TableCell className="font-medium">{pkg.name}</TableCell>
                 <TableCell className="tabular-nums">{formatKes(pkg.price)}</TableCell>
