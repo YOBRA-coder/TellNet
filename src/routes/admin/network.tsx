@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HARDWARE_LABELS, HARDWARE_TYPES, type HardwareType } from "@/lib/hardware";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { MapPin, PlayCircle, Plus, Radio, RefreshCw, Router, Smartphone, Wifi } from "lucide-react";
+import { Copy, MapPin, PlayCircle, Plus, Radio, RefreshCw, Router, Smartphone, Users, Wifi } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -128,6 +128,8 @@ function NetworkPage() {
   const [ispForm, setIspForm] = useState(emptyIsp);
   const [siteForm, setSiteForm] = useState(emptySiteForm);
   const [probe, setProbe] = useState<RouterProbe | null>(null);
+  /** Id of an Omada/Ruijie site saved from this dialog, so its portal URL can be shown right away. */
+  const [savedId, setSavedId] = useState<string | null>(null);
   const [scriptOpen, setScriptOpen] = useState(false);
   const [scriptText, setScriptText] = useState("");
   const [scriptTitle, setScriptTitle] = useState("");
@@ -159,8 +161,12 @@ function NetworkPage() {
     return groups;
   }, [routers]);
 
-  function startAdd(mt?: MikroTik) {
+  /** Existing id, or the one just created — the URL the vendor device needs contains it. */
+  const portalId = editing?.id ?? savedId;
+
+  function startAdd(mt?: MikroTik, type?: HardwareType) {
     setProbe(null);
+    setSavedId(null);
     if (mt) {
       const parsed = parseRouterHost(mt.host);
       setEditing(mt);
@@ -192,9 +198,12 @@ function NetworkPage() {
       });
     } else {
       setEditing(null);
+      const t = type ?? "mikrotik";
       setForm({
         ...emptyRouter,
-        makePrimary: allRouters.length === 0,
+        hardwareType: t,
+        ...(t === "omada" ? { port: 8043, ssl: true, insecureTls: true, apiUser: "" } : {}),
+        makePrimary: t === "mikrotik" && !allRouters.some((r) => r.hardwareType === "mikrotik"),
         siteId: siteFilter === ALL_SITES ? "site_default" : siteFilter,
       });
     }
@@ -205,7 +214,7 @@ function NetworkPage() {
     mutationFn: () =>
       saveMikroTik({
         data: {
-          id: editing?.id,
+          id: portalId ?? undefined,
           hardwareType: form.hardwareType,
           hwOmadacId: form.hwOmadacId,
           hwOmadaSite: form.hwOmadaSite,
@@ -251,7 +260,7 @@ function NetworkPage() {
           : res.probe.ok
             ? "Router saved and reachable."
             : form.hardwareType === "ruijie"
-              ? "Saved. Now point the Ruijie gateway at the portal URL shown in this form."
+              ? "Saved. Now point the Ruijie gateway at the Server URL shown in this form."
               : form.hardwareType === "omada"
                 ? "Saved, but the Omada controller could not be reached. Check URL, operator and password."
                 : "Router saved. REST probe failed — check IP → Services → www.",
@@ -259,6 +268,13 @@ function NetworkPage() {
       qc.invalidateQueries({ queryKey: ["network"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["settings"] });
+      if (form.hardwareType !== "mikrotik" && !editing) {
+        // New Omada/Ruijie site: stay here — the portal URL to paste into the controller/gateway
+        // only exists now, and the operator needs it before anything works.
+        setSavedId(res.id);
+        toast.message("Now copy the portal URL below into your " + (form.hardwareType === "omada" ? "Omada controller." : "Ruijie gateway."));
+        return;
+      }
       if (res.probe.ok || form.hardwareType === "ruijie") setOpen(false);
     },
     onError: () => toast.error("Could not save the router."),
@@ -286,7 +302,7 @@ function NetworkPage() {
           apiMode: f.apiMode,
           apiPort: f.apiMode === "api6" ? f.apiPort || f.port || 8728 : f.port,
           insecureTls: f.insecureTls,
-          id: editing?.id,
+          id: portalId ?? undefined,
         },
       });
     },
@@ -466,6 +482,14 @@ function NetworkPage() {
     onError: () => toast.error("Could not apply camouflage."),
   });
 
+  function confirmRemove(mt: MikroTik) {
+    const extra =
+      mt.hardwareType === "mikrotik"
+        ? ""
+        : " Customers currently switched on through it lose their record here and the portal stops working for that site.";
+    if (window.confirm(`Remove ${mt.name} (${HARDWARE_LABELS[mt.hardwareType]}) from TelNet?${extra}`)) remove.mutate(mt.id);
+  }
+
   function alreadyIsp(interfaceName: string) {
     return isps.some((i) => i.interfaceName === interfaceName);
   }
@@ -478,9 +502,9 @@ function NetworkPage() {
             Network
           </h1>
           <p className="mt-1 max-w-xl text-sm text-muted">
-            Register a real MikroTik with RouterOS REST. TelNet never load-balances
-            WANs — it only activates users. When a path drops, the same package
-            stays valid.
+            Register your sites: MikroTik (RouterOS), TP-Link Omada or Ruijie / Reyee.
+            TelNet never load-balances WANs — it only activates users. When a path
+            drops, the same package stays valid.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -531,7 +555,7 @@ function NetworkPage() {
           </Button>
           <Button onClick={() => startAdd()}>
             <Plus className="size-4" />
-            Add router
+            Add site
           </Button>
         </div>
       </div>
@@ -539,25 +563,36 @@ function NetworkPage() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <Router className="size-4 text-accent" />
-          <h2 className="font-display text-lg font-semibold">Add routers</h2>
+          <h2 className="font-display text-lg font-semibold">Routers & controllers</h2>
         </div>
         {routers.length === 0 ? (
           <Card className="p-6">
-            <p className="font-display text-lg font-semibold">Add a real MikroTik</p>
-            <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">
-              Register any RouterOS 7 box — hAP, RB750, CCR, HEX, LTE. TelNet
-              supports RouterOS 7 REST (www) and RouterOS 6 binary API (8728) — pick below when adding a router. After it
-              is reachable, one-click camouflage can make the WAN look like a
-              phone or PC to the ISP.
+            <p className="font-display text-lg font-semibold">Add your first site</p>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+              Pick the hardware that runs the hotspot. You can mix them: each site (town) can use a different make.
             </p>
-            <ol className="mt-4 max-w-lg space-y-2 text-sm text-muted">
-              <li>1. ROS7: IP → Services → www/www-ssl. ROS6: IP → Services → api (8728).</li>
-              <li>2. Create a user in the full group, or a group that can write hotspot users.</li>
-              <li>3. If this app is in the cloud, expose REST with a tunnel or public IP — 192.168.88.1 will not route from here.</li>
-            </ol>
-            <Button className="mt-5" onClick={() => startAdd()}>
-              Add router
-            </Button>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {(
+                [
+                  ["mikrotik", "RouterOS 7 REST (www) or RouterOS 6 API (8728). Create a user that can write hotspot users. Cloud-hosted app: expose it with a tunnel or public IP."],
+                  ["omada", "TP-Link controller with External Portal Server. Needs a Hotspot Manager operator and a controller this server can reach (VPS or OC200 with port forwarding)."],
+                  ["ruijie", "Reyee gateway (EG) with WiFiDog V1 external portal. Nothing to log in to: the gateway calls this server. Needs an HTTPS app URL."],
+                ] as [HardwareType, string][]
+              ).map(([t, text]) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => startAdd(undefined, t)}
+                  className="rounded-xl border border-border p-4 text-left transition hover:border-accent/60 hover:bg-accent/5"
+                >
+                  <p className="font-medium">{HARDWARE_LABELS[t]}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">{text}</p>
+                  <span className="mt-3 inline-flex items-center gap-1 text-xs text-accent">
+                    <Plus className="size-3.5" /> Add {HARDWARE_LABELS[t]}
+                  </span>
+                </button>
+              ))}
+            </div>
           </Card>
         ) : siteFilter === ALL_SITES && sites.length > 1 ? (
           <div className="space-y-5">
@@ -577,7 +612,7 @@ function NetworkPage() {
                       onTest={() => test.mutate({ id: mt.id })}
                       onPrimary={() => primary.mutate(mt.id)}
                       onEdit={() => startAdd(mt)}
-                      onRemove={() => remove.mutate(mt.id)}
+                      onRemove={() => confirmRemove(mt)}
                       testing={test.isPending}
                       promoting={primary.isPending}
                       removing={remove.isPending}
@@ -623,7 +658,7 @@ function NetworkPage() {
                 onTest={() => test.mutate({ id: mt.id })}
                 onPrimary={() => primary.mutate(mt.id)}
                 onEdit={() => startAdd(mt)}
-                onRemove={() => remove.mutate(mt.id)}
+                onRemove={() => confirmRemove(mt)}
                 testing={test.isPending}
                 promoting={primary.isPending}
                 removing={remove.isPending}
@@ -814,14 +849,16 @@ function NetworkPage() {
             <div className="rounded-lg border border-border p-3 space-y-2">
               <p className="text-sm font-medium">Hardware</p>
               <p className="text-xs text-muted">
-                What this site runs. MikroTik keeps working exactly as before.
+                What this site runs. MikroTik keeps working exactly as before. Chosen once; to change it add a new site.
               </p>
               <div className="flex flex-wrap gap-2">
                 {HARDWARE_TYPES.map((t) => (
                   <button
                     key={t}
                     type="button"
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium border ${
+                    disabled={Boolean(portalId) && form.hardwareType !== t}
+                    title={portalId && form.hardwareType !== t ? "Hardware can't be changed once saved. Add a new site instead." : undefined}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium border disabled:cursor-not-allowed disabled:opacity-40 ${
                       form.hardwareType === t
                         ? "border-accent bg-accent/10 text-fg"
                         : "border-border text-muted"
@@ -831,10 +868,12 @@ function NetworkPage() {
                         ...form,
                         hardwareType: t,
                         ...(t === "omada"
-                          ? { port: 8043, ssl: true, insecureTls: true, apiUser: editing ? form.apiUser : "" }
-                          : t === "mikrotik" && form.hardwareType !== "mikrotik"
-                            ? { port: 80, ssl: false, apiUser: "admin" }
-                            : {}),
+                          ? { port: 8043, ssl: true, insecureTls: true, apiUser: "", makePrimary: false }
+                          : t === "ruijie"
+                            ? { makePrimary: false }
+                            : form.hardwareType !== "mikrotik"
+                              ? { port: 80, ssl: false, insecureTls: false, apiUser: "admin", makePrimary: !allRouters.some((r) => r.hardwareType === "mikrotik") }
+                              : {}),
                       })
                     }
                   >
@@ -959,7 +998,7 @@ function NetworkPage() {
                 </p>
                 <PortalUrl
                   label="Portal URL for Omada"
-                  url={editing ? `${origin()}/api/hw/entry/${editing.id}` : null}
+                  url={portalId ? `${origin()}/api/hw/entry/${portalId}` : null}
                 />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Controller ID (optional)">
@@ -1007,7 +1046,7 @@ function NetworkPage() {
                 </p>
                 <PortalUrl
                   label="Server URL for the gateway"
-                  url={editing ? `${origin()}/api/hw/wd/${editing.id}/` : null}
+                  url={portalId ? `${origin()}/api/hw/wd/${portalId}/` : null}
                 />
                 <Field label="Gateway ID (optional)">
                   <Input
@@ -1077,6 +1116,7 @@ function NetworkPage() {
               />
             </div>
             )}
+            {form.hardwareType === "mikrotik" && (
             <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="text-sm font-medium">Primary router</p>
@@ -1089,6 +1129,7 @@ function NetworkPage() {
                 onCheckedChange={(v) => setForm({ ...form, makePrimary: v })}
               />
             </div>
+            )}
             <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="text-sm font-medium">Pause time during outages</p>
@@ -1154,14 +1195,16 @@ function NetworkPage() {
                 disabled={
                   test.isPending ||
                   (form.hardwareType === "mikrotik" && (!form.host || !form.apiUser)) ||
-                  (form.hardwareType === "omada" && (!form.host || !form.apiUser))
+                  (form.hardwareType === "omada" && (!form.host || !form.apiUser)) ||
+                  (form.hardwareType === "ruijie" && !portalId)
                 }
+                title={form.hardwareType === "ruijie" && !portalId ? "Save first, then set up the gateway: the test checks for its first contact." : undefined}
                 onClick={() => test.mutate(form)}
               >
-                {test.isPending ? "Testing…" : form.hardwareType === "mikrotik" ? "Test REST" : "Test connection"}
+                {test.isPending ? "Testing…" : form.hardwareType === "mikrotik" ? "Test REST" : form.hardwareType === "ruijie" ? "Check gateway contact" : "Test connection"}
               </Button>
               <Button type="submit" disabled={save.isPending}>
-                {save.isPending ? "Saving…" : editing ? "Save router" : "Add router"}
+                {save.isPending ? "Saving…" : savedId ? "Save changes" : editing ? "Save site" : "Add site"}
               </Button>
             </DialogFooter>
           </form>
@@ -1257,7 +1300,7 @@ function NetworkPage() {
                 }
               />
             </Field>
-            {allRouters.length > 0 && (
+            {allRouters.some((r) => r.hardwareType === "mikrotik") && (
               <Field label="MikroTik">
                 <select
                   className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
@@ -1274,7 +1317,7 @@ function NetworkPage() {
                   }}
                 >
                   <option value="">Any / unassigned</option>
-                  {allRouters.map((mt) => (
+                  {allRouters.filter((r) => r.hardwareType === "mikrotik").map((mt) => (
                     <option key={mt.id} value={mt.id}>
                       {mt.name} · {siteName(mt.siteId)}
                     </option>
@@ -1576,9 +1619,19 @@ function RouterCard({
     <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wide text-subtle">
-            {mt.hardwareType === "mikrotik" ? (mt.boardName ?? "RouterOS") : HARDWARE_LABELS[mt.hardwareType]}
-            {mt.isPrimary ? " · Primary" : ""}{mt.pauseOnOutage ? " · Outage credit on" : ""}
+          <p className="flex flex-wrap items-center gap-x-1.5 text-xs uppercase tracking-wide text-subtle">
+            <span
+              className={
+                mt.hardwareType === "mikrotik"
+                  ? "rounded bg-raised px-1.5 py-0.5 font-semibold text-muted"
+                  : "rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent"
+              }
+            >
+              {HARDWARE_LABELS[mt.hardwareType]}
+            </span>
+            {mt.hardwareType === "mikrotik" && mt.boardName ? <span>{mt.boardName}</span> : null}
+            {mt.isPrimary ? <span>· Primary</span> : null}
+            {mt.pauseOnOutage ? <span>· Outage credit on</span> : null}
           </p>
           <h3 className="mt-1 font-display text-xl font-semibold">{mt.name}</h3>
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">
@@ -1586,15 +1639,15 @@ function RouterCard({
             {siteLabel}
           </p>
           <p className="mt-1 font-mono text-xs text-muted">{mt.host}</p>
-          {mt.hardwareType === "omada" && (
-            <p className="mt-1 break-all font-mono text-[11px] text-muted">
-              Portal URL: {origin()}/api/hw/entry/{mt.id}
-            </p>
-          )}
-          {mt.hardwareType === "ruijie" && (
-            <p className="mt-1 break-all font-mono text-[11px] text-muted">
-              Server URL: {origin()}/api/hw/wd/{mt.id}/
-            </p>
+          {mt.hardwareType !== "mikrotik" && (
+            <CopyLine
+              label={mt.hardwareType === "omada" ? "Portal URL" : "Server URL"}
+              value={
+                mt.hardwareType === "omada"
+                  ? `${origin()}/api/hw/entry/${mt.id}`
+                  : `${origin()}/api/hw/wd/${mt.id}/`
+              }
+            />
           )}
         </div>
         <Badge
@@ -1605,6 +1658,35 @@ function RouterCard({
           {mt.status}
         </Badge>
       </div>
+      {mt.hardwareType !== "mikrotik" ? (
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-subtle">Portal mode</dt>
+          <dd className="mt-0.5">{mt.hardwareType === "omada" ? "External Portal + controller API" : "WiFiDog external portal"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-subtle">Devices online</dt>
+          <dd className="mt-0.5 flex items-center gap-1.5 tabular-nums">
+            <Users className="size-3.5 text-muted" />
+            {mt.hwActiveDevices}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-subtle">{mt.hardwareType === "omada" ? "Controller" : "Gateway"}</dt>
+          <dd className="mt-0.5">{mt.identity ?? "—"}{mt.version ? ` · ${mt.version}` : ""}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-subtle">
+            {mt.hardwareType === "omada" ? "Last login check" : "Last heard from gateway"}
+          </dt>
+          <dd className="mt-0.5">
+            {mt.hardwareType === "omada"
+              ? mt.lastPingAt ? formatStamp(mt.lastPingAt) : "—"
+              : mt.hwSeenAt ? formatStamp(mt.hwSeenAt) : "Never"}
+          </dd>
+        </div>
+      </dl>
+      ) : (
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div>
           <dt className="text-xs uppercase tracking-wide text-subtle">Identity</dt>
@@ -1614,17 +1696,10 @@ function RouterCard({
           <dt className="text-xs uppercase tracking-wide text-subtle">Version</dt>
           <dd className="mt-0.5">{mt.version ?? "—"}</dd>
         </div>
-        {mt.hardwareType === "mikrotik" ? (
         <div>
           <dt className="text-xs uppercase tracking-wide text-subtle">Hotspot</dt>
           <dd className="mt-0.5">{mt.hotspotName} · {mt.apiMode === "api6" ? "ROS6 API" : "ROS7 REST"}</dd>
         </div>
-        ) : (
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-subtle">Portal mode</dt>
-          <dd className="mt-0.5">{mt.hardwareType === "omada" ? "External Portal + controller API" : "WiFiDog external portal"}</dd>
-        </div>
-        )}
         <div>
           <dt className="text-xs uppercase tracking-wide text-subtle">CPU</dt>
           <dd className="mt-0.5">{mt.cpuLoad == null ? "—" : `${mt.cpuLoad}%`}</dd>
@@ -1638,7 +1713,8 @@ function RouterCard({
           </dd>
         </div>
       </dl>
-      {mt.interfaces.length > 0 && (
+      )}
+      {mt.hardwareType === "mikrotik" && mt.interfaces.length > 0 && (
         <ul className="mt-4 space-y-1.5">
           {mt.interfaces.slice(0, 8).map((iface) => {
             const linked = isps.some((i) => i.interfaceName === iface.name);
@@ -1676,6 +1752,7 @@ function RouterCard({
           Last probe {formatStamp(mt.lastPingAt)}
         </p>
       )}
+      {mt.hardwareType === "mikrotik" && (
       <div className="mt-4 rounded-lg border border-border p-3">
         <div className="flex items-center gap-2">
           <Smartphone className="size-4 text-accent" />
@@ -1728,11 +1805,18 @@ function RouterCard({
           ))}
         </div>
       </div>
+      )}
+      {mt.hardwareType === "ruijie" && mt.status !== "ONLINE" && (
+        <p className="mt-3 rounded-lg border border-dashed border-border p-3 text-xs text-muted">
+          Waiting for the gateway: set the Server URL above in the Reyee gateway's WiFiDog template, apply it in an
+          Authentication Policy, then connect a phone to the Wi-Fi. This card turns Online on the gateway's first check-in.
+        </p>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={onTest} disabled={testing}>
-          Test REST
+          {testing ? "Testing…" : mt.hardwareType === "mikrotik" ? "Test REST" : mt.hardwareType === "ruijie" ? "Check contact" : "Test connection"}
         </Button>
-        {!mt.isPrimary && (
+        {mt.hardwareType === "mikrotik" && !mt.isPrimary && (
           <Button size="sm" variant="accent" onClick={onPrimary} disabled={promoting}>
             Use for activations
           </Button>
@@ -1745,6 +1829,33 @@ function RouterCard({
         </Button>
       </div>
     </Card>
+  );
+}
+
+/** A label + selectable URL with a copy button (used on Omada / Ruijie cards). */
+function CopyLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mt-2 flex items-center gap-2 rounded-lg bg-raised px-2.5 py-1.5">
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] uppercase tracking-wide text-subtle">{label} · paste into the {label === "Portal URL" ? "Omada controller" : "Ruijie gateway"}</p>
+        <p className="break-all font-mono text-[11px] text-muted">{value}</p>
+      </div>
+      <button
+        type="button"
+        aria-label={`Copy ${label}`}
+        className="shrink-0 rounded p-1.5 text-muted hover:text-fg"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            toast.success("URL copied.");
+          } catch {
+            toast.message("Select the URL and copy it.");
+          }
+        }}
+      >
+        <Copy className="size-4" />
+      </button>
+    </div>
   );
 }
 
@@ -2058,9 +2169,26 @@ function PortalUrl({ label, url }: { label: string; url: string | null }) {
   return (
     <Field label={label}>
       {url ? (
-        <Input readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
+        <div className="flex gap-2">
+          <Input readOnly value={url} onFocus={(e) => e.currentTarget.select()} className="font-mono text-xs" />
+          <Button
+            type="button"
+            variant="outline"
+            aria-label="Copy URL"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(url);
+                toast.success("URL copied.");
+              } catch {
+                toast.message("Select the URL and copy it.");
+              }
+            }}
+          >
+            <Copy className="size-4" />
+          </Button>
+        </div>
       ) : (
-        <p className="text-xs text-muted">Save this site first — the URL (with its unique id) appears here.</p>
+        <p className="text-xs text-muted">Press “Add site” — the URL (with this site's unique id) then appears here, ready to copy.</p>
       )}
     </Field>
   );

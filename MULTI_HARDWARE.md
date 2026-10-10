@@ -37,3 +37,14 @@ These were tested against mock controller/gateway servers, not real devices.
 
 ## Not available on Omada/Ruijie
 Opening hours switch-off, student domain blocking, per-package speed, live router stats (MikroTik-only features).
+
+## Network and Network map pages (updated)
+- **Network page**: every site shows a hardware badge. Omada/Ruijie cards show portal mode, devices online and last contact, with a
+  one-click **copy** of the Portal/Server URL; MikroTik-only items (camouflage, WAN interface, CPU/memory, "Use for activations")
+  are hidden for them. Adding an Omada/Ruijie site keeps the dialog open after saving so the URL (it contains the site id) can be copied.
+  Hardware can't be changed on a saved site. Removing a site now asks first.
+- **"Primary router" is MikroTik-only.** Saving, promoting or deleting an Omada/Ruijie site no longer changes which MikroTik is primary
+  (previously it could clear it).
+- **Network map**: Omada/Ruijie sites appear with their badge, status (refreshed on every map refresh), devices online, and are counted in
+  "Active users". Their APs show clients (matched by AP MAC, Omada only) and revenue (Omada only). Ruijie's protocol does not report
+  the AP, so Ruijie APs are a list only. APs on Omada are never pinged, so they show Online while customers are connected, otherwise grey.

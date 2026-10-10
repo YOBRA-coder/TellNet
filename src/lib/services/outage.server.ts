@@ -207,6 +207,10 @@ export async function probeAllRouters(): Promise<number> {
   try {
     const { sampleApUsage } = await import("./network-live.server");
     await sampleApUsage();
+    // Omada sites: same sampling, keyed by the AP MAC the controller reports.
+    const hw = await import("./hardware/ap.server");
+    await hw.sampleHwApUsage();
+    await hw.refreshHwAccessPoints();
   } catch (err) {
     console.error("[ap-usage]", err);
   }

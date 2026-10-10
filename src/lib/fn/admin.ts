@@ -23,6 +23,7 @@ import {
   tickLiveUsage,
 } from "@/lib/services/activation.server";
 import { disconnectUser, probeHwRouter, probeStoredRouter } from "@/lib/services/hardware";
+import { hwActiveDeviceCounts, refreshHwAccessPoints } from "@/lib/services/hardware/ap.server";
 import { HARDWARE_LABELS, HARDWARE_TYPES, parseHwConfig, asHardwareType, type HardwareType } from "@/lib/hardware";
 import {
   applyRadiusToRouter,
@@ -1093,11 +1094,12 @@ export const getNetwork = createServerFn({ method: "GET" })
         sql<{ n: number }>`select count(*)::int as n from sessions where status = 'ACTIVE'`,
         sql<SqlRow>`select * from sites order by name`,
       ]);
+    const hwCounts = await hwActiveDeviceCounts().catch(() => new Map<string, number>());
     return {
       settings,
       router,
       isps: ispsRaw.map(mapIsp),
-      mikrotiks: mikrotiksRaw.map(mapMikroTik),
+      mikrotiks: mikrotiksRaw.map((r) => ({ ...mapMikroTik(r), hwActiveDevices: hwCounts.get(String(r.id)) ?? 0 })),
       events: eventsRaw.map(mapEvent),
       onlineUsers: asNumber(online[0]?.n),
       sites: sitesRaw.map(mapSite),
@@ -1514,12 +1516,15 @@ export const saveMikroTik = createServerFn({ method: "POST" })
       };
     }
 
-    const count = await sql<{ n: number }>`select count(*)::int as n from mikrotiks`;
-    const onlyRouter = asNumber(count[0]?.n) === 0 || (Boolean(existing) && asNumber(count[0]?.n) === 1);
-    const makePrimary = data.makePrimary || onlyRouter || (!existing && asNumber(count[0]?.n) === 0);
+    // "Primary" only exists for MikroTik (it is the router that creates hotspot users).
+    // Omada / Ruijie sites never take it, and saving one must never strip it from the MikroTik.
+    const others = await sql<{ n: number }>`
+      select count(*)::int as n from mikrotiks where hardware_type = 'mikrotik' and id <> ${id}
+    `;
+    const makePrimary = isMikroTik && (Boolean(data.makePrimary) || asNumber(others[0]?.n) === 0);
 
     if (makePrimary) {
-      await sql`update mikrotiks set is_primary = false, updated_at = now()`;
+      await sql`update mikrotiks set is_primary = false, updated_at = now() where hardware_type = 'mikrotik'`;
     }
 
     const siteId = await resolveSiteId(data.siteId, data.newSiteName);
@@ -1559,6 +1564,14 @@ export const saveMikroTik = createServerFn({ method: "POST" })
         hours_pause = case when ${data.hoursPause ?? null}::boolean is null then mikrotiks.hours_pause else excluded.hours_pause end,
         hours_message = case when ${data.hoursMessage != null ? "set" : null}::text is null then mikrotiks.hours_message else excluded.hours_message end,
         updated_at = now()
+    `;
+
+    // If this save turned the primary MikroTik into an Omada/Ruijie site (or switched primary off),
+    // hand the flag to the oldest remaining MikroTik so activations keep a primary.
+    await sql`
+      update mikrotiks set is_primary = true, updated_at = now()
+      where id = (select id from mikrotiks where hardware_type = 'mikrotik' order by created_at limit 1)
+        and not exists (select 1 from mikrotiks where hardware_type = 'mikrotik' and is_primary)
     `;
 
     // A new/changed schedule takes effect now, not at the next tick.
@@ -1793,10 +1806,13 @@ export const setPrimaryMikroTik = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const sql = await getSql();
     const row = (
-      await sql<{ name: string }>`select name from mikrotiks where id = ${data.id} limit 1`
+      await sql<{ name: string; hardware_type: string }>`select name, hardware_type from mikrotiks where id = ${data.id} limit 1`
     )[0];
     if (!row) return { ok: false as const, error: "Router not found." };
-    await sql`update mikrotiks set is_primary = false, updated_at = now()`;
+    if (row.hardware_type !== "mikrotik") {
+      return { ok: false as const, error: "Only a MikroTik can be the primary router. Omada and Ruijie sites work alongside it." };
+    }
+    await sql`update mikrotiks set is_primary = false, updated_at = now() where hardware_type = 'mikrotik'`;
     await sql`
       update mikrotiks set is_primary = true, updated_at = now() where id = ${data.id}
     `;
@@ -1824,7 +1840,7 @@ export const deleteMikroTik = createServerFn({ method: "POST" })
     if (row.is_primary) {
       const next = (
         await sql<{ id: string }>`
-          select id from mikrotiks order by created_at limit 1
+          select id from mikrotiks where hardware_type = 'mikrotik' order by created_at limit 1
         `
       )[0];
       if (next) {
@@ -2104,6 +2120,7 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
   ]);
   const allSites = sitesRaw.map(mapSite);
   const siteOf = (id: unknown) => (id ? String(id) : "site_default");
+  const hwCounts = await hwActiveDeviceCounts().catch(() => new Map<string, number>());
 
   const routers: MapRouter[] = routersRaw.map((row) => {
     let live: LiveSnapshot | null = null;
@@ -2113,6 +2130,8 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
       live = null;
     }
     const mt = mapMikroTik(row);
+    const isHw = mt.hardwareType !== "mikrotik";
+    const hwActive = hwCounts.get(mt.id) ?? 0;
     const site = allSites.find((x) => x.id === siteOf(row.site_id));
     const isps = ispsRaw
       .filter((i) => i.mikrotik_id && String(i.mikrotik_id) === mt.id)
@@ -2144,7 +2163,9 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
       .filter((a) => String(a.mikrotik_id) === mt.id)
       .map((a) => {
         const status = (["ONLINE", "WARNING", "OFFLINE", "UNKNOWN"].includes(String(a.status)) ? String(a.status) : "UNKNOWN") as HealthState;
-        const revenue = a.port ? (apMoney.get(String(a.id))?.revenue ?? 0) : null;
+        // MikroTik attributes revenue by router port; Omada by the AP's MAC; Ruijie cannot tell which AP.
+        const trackable = isHw ? mt.hardwareType === "omada" && Boolean(a.mac_address) : Boolean(a.port);
+        const revenue = trackable ? (apMoney.get(String(a.id))?.revenue ?? 0) : null;
         const ageMs = a.created_at ? Date.now() - new Date(iso(a.created_at)).getTime() : 0;
         return {
         id: String(a.id),
@@ -2163,7 +2184,7 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
         checkedAt: a.checked_at ? iso(a.checked_at) : null,
         // revenue can only be attributed when we know which router port the AP is on
         revenue,
-        paidCustomers: a.port ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
+        paidCustomers: trackable ? (apMoney.get(String(a.id))?.customers ?? 0) : null,
         // a brand-new AP gets a day before it is flagged
         noIncome: canJudgeIncome && revenue === 0 && (status === "ONLINE" || status === "WARNING") && ageMs >= 24 * 3600_000,
         };
@@ -2217,6 +2238,9 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
       id: mt.id,
       name: mt.name,
       host: mt.host,
+      hardwareType: mt.hardwareType,
+      hwActiveDevices: hwActive,
+      hwSeenAt: mt.hwSeenAt,
       isPrimary: mt.isPrimary,
       siteId: siteOf(row.site_id),
       siteName: site?.name ?? "Main site",
@@ -2258,7 +2282,7 @@ async function buildNetworkMap(siteId: string | null, days = 30): Promise<Networ
         unknown: aps.filter((a) => a.status === "UNKNOWN").length,
         noIncome: aps.filter((a) => a.noIncome).length,
       },
-      activeUsers: visible.reduce((s, r) => s + (r.live?.activeUsers ?? 0), 0),
+      activeUsers: visible.reduce((s, r) => s + (r.live?.activeUsers ?? 0) + r.hwActiveDevices, 0),
       rxBps: visible.reduce((s, r) => s + (r.live?.rxBps ?? 0), 0),
       txBps: visible.reduce((s, r) => s + (r.live?.txBps ?? 0), 0),
     },
@@ -2276,6 +2300,25 @@ export const getNetworkMap = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     if (data.refresh) {
+      // Omada / Ruijie sites: re-check the controller / gateway heartbeat (not more than every 20 s per site)
+      // so the map follows them too. recordProbeResult keeps outage credit and recovery working.
+      const sqlHw = await getSql();
+      const hwStale = await sqlHw<{ id: string }>`
+        select id from mikrotiks
+        where hardware_type <> 'mikrotik'
+          and (last_ping_at is null or last_ping_at < now() - interval '20 seconds')
+      `;
+      await Promise.all(
+        hwStale.map(async (r) => {
+          try {
+            const p = await probeStoredRouter(String(r.id));
+            if (p) await persistProbe(String(r.id), p);
+          } catch (err) {
+            console.error("[map-probe]", r.id, err);
+          }
+        }),
+      );
+      await refreshHwAccessPoints().catch(() => {});
       const results = await refreshNetworkLive({ maxAgeMs: 5000 }).catch(() => []);
       // Keep the router's stored status in step with what we just read, through
       // the same path the Network page uses (so recovery auto-resume still fires).
@@ -2329,7 +2372,7 @@ export const saveAccessPoint = createServerFn({ method: "POST" })
     if (mac && !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) return { ok: false as const, error: "MAC must look like AA:BB:CC:DD:EE:FF." };
     if (!ip && !mac) return { ok: false as const, error: "Give the AP's IP address (best) or its MAC so its status can be checked." };
     const router = await sql<{ id: string }>`select id from mikrotiks where id = ${data.mikrotikId} limit 1`;
-    if (!router[0]) return { ok: false as const, error: "Choose the MikroTik this AP connects to." };
+    if (!router[0]) return { ok: false as const, error: "Choose the router or controller this AP belongs to." };
     const id = data.id ?? nid("ap");
     const label = data.label?.trim() || null;
     if (label) {
@@ -2351,6 +2394,7 @@ export const saveAccessPoint = createServerFn({ method: "POST" })
     await logEvent("AP", `Access point ${data.name.trim()} ${data.id ? "updated" : "added"}.`);
     // Check it straight away so it doesn't sit grey until the next refresh.
     await refreshNetworkLive({ routerId: data.mikrotikId }).catch(() => {});
+    await refreshHwAccessPoints(data.mikrotikId).catch(() => {});
     return { ok: true as const, id };
   });
 

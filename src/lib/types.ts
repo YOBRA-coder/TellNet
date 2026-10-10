@@ -181,6 +181,10 @@ export type MikroTik = {
   hardwareType: "mikrotik" | "omada" | "ruijie";
   /** Vendor extras (Omada ID/site/time unit, Ruijie gateway id). */
   hwConfig: { omadacId?: string; omadaSite?: string; omadaTimeUnit?: "ms" | "us"; ruijieGwId?: string };
+  /** Omada/Ruijie: last time the gateway called our WiFiDog endpoints (Ruijie heartbeat). */
+  hwSeenAt: string | null;
+  /** Omada/Ruijie: client devices switched on right now through this site (0 for MikroTik). */
+  hwActiveDevices: number;
   name: string;
   host: string;
   apiUser: string;
@@ -341,6 +345,12 @@ export type MapRouter = {
   id: string;
   name: string;
   host: string;
+  /** mikrotik | omada | ruijie */
+  hardwareType: "mikrotik" | "omada" | "ruijie";
+  /** Omada/Ruijie: devices switched on through this site now (MikroTik uses live.activeUsers). */
+  hwActiveDevices: number;
+  /** Omada/Ruijie: last contact from the gateway (Ruijie heartbeat). */
+  hwSeenAt: string | null;
   isPrimary: boolean;
   siteId: string;
   siteName: string;

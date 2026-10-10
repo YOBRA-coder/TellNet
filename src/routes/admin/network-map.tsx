@@ -32,6 +32,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAdminSite } from "@/hooks/use-admin-site";
 import { deleteAccessPoint, getNetworkMap, saveAccessPoint } from "@/lib/fn/admin";
 import { formatBytes } from "@/lib/format";
+import { HARDWARE_LABELS } from "@/lib/hardware";
 import type { AccessPointRow, HealthState, MapRouter } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -190,7 +191,7 @@ function NetworkMapPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Summary
           icon={<RouterIcon className="size-4" />}
-          title="MikroTik routers"
+          title="Routers & gateways"
           value={String((t?.routers.online ?? 0) + (t?.routers.warning ?? 0) + (t?.routers.offline ?? 0))}
           chips={[
             ["ONLINE", t?.routers.online ?? 0],
@@ -217,7 +218,7 @@ function NetworkMapPage() {
           icon={<Users className="size-4" />}
           title="Active users"
           value={String(t?.activeUsers ?? 0)}
-          note="connected to hotspots now"
+          note="devices connected now (all hardware)"
         />
         <Summary
           icon={<Globe className="size-4" />}
@@ -237,7 +238,7 @@ function NetworkMapPage() {
             <div className="mt-4 h-40 animate-pulse rounded-xl bg-raised" />
           ) : d.sites.every((s) => s.routers.length === 0) ? (
             <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-sm text-muted">
-              No MikroTik routers{siteId !== "ALL" ? " in this site" : ""} yet. Add one on the{" "}
+              No routers or controllers{siteId !== "ALL" ? " in this site" : ""} yet. Add a MikroTik, TP-Link Omada or Ruijie site on the{" "}
               <Link to="/admin/network" className="text-accent underline">
                 Network page
               </Link>
@@ -286,14 +287,29 @@ function NetworkMapPage() {
                                   <Dot state={r.state} />
                                   <span className="truncate">{r.name}</span>
                                   {r.isPrimary ? <Badge tone="accent">Primary</Badge> : null}
+                                  {r.hardwareType !== "mikrotik" ? (
+                                    <Badge tone="neutral">{HARDWARE_LABELS[r.hardwareType]}</Badge>
+                                  ) : null}
                                 </span>
                                 <span className="shrink-0 text-xs text-muted">{LABEL[r.state]}</span>
                               </div>
                               <p className="mt-0.5 truncate text-xs text-subtle">
-                                {[r.boardName, r.version ? `RouterOS ${r.version}` : null, r.host.replace(/^https?:\/\//, "")]
-                                  .filter(Boolean)
-                                  .join(" · ")}
+                                {r.hardwareType === "mikrotik"
+                                  ? [r.boardName, r.version ? `RouterOS ${r.version}` : null, r.host.replace(/^https?:\/\//, "")]
+                                      .filter(Boolean)
+                                      .join(" · ")
+                                  : r.hardwareType === "omada"
+                                    ? [r.version ? `Controller ${r.version}` : "Omada controller", r.host.replace(/^https?:\/\//, "")]
+                                        .filter(Boolean)
+                                        .join(" · ")
+                                    : "Ruijie / Reyee gateway · calls this portal"}
                               </p>
+                              {r.hardwareType !== "mikrotik" ? (
+                                <p className="mt-1 flex items-center gap-1 text-xs text-muted">
+                                  <Users className="size-3" />
+                                  {r.hwActiveDevices} device{r.hwActiveDevices === 1 ? "" : "s"} online
+                                </p>
+                              ) : null}
                               <p className="mt-1 flex items-center gap-1 text-xs text-muted">
                                 <MapPin className="size-3" />
                                 {r.siteName}
@@ -388,7 +404,7 @@ function NetworkMapPage() {
         <div className="space-y-4">
           {selected ? (
             <>
-              <RouterStatus r={selected} />
+              {selected.hardwareType === "mikrotik" ? <RouterStatus r={selected} /> : <VendorStatus r={selected} />}
               <ApTable
                 r={selected}
                 days={days}
@@ -415,10 +431,10 @@ function NetworkMapPage() {
                   if (window.confirm(`Remove ${a.name} from the map?`)) delAp.mutate(a.id);
                 }}
               />
-              <PortsTable r={selected} />
+              {selected.hardwareType === "mikrotik" ? <PortsTable r={selected} /> : null}
             </>
           ) : (
-            <Card className="p-5 text-sm text-muted">Select a router to see its status, access points and ports.</Card>
+            <Card className="p-5 text-sm text-muted">Select a router or controller to see its status and access points.</Card>
           )}
         </div>
       </div>
@@ -428,8 +444,10 @@ function NetworkMapPage() {
           <DialogHeader>
             <DialogTitle>{apForm.id ? "Edit access point" : "Add access point"}</DialogTitle>
             <DialogDescription>
-              The AP belongs to a MikroTik and automatically shows in that router's town. Its status is
-              checked by pinging it from the router.
+              The AP belongs to a router or controller and automatically shows in that site's town.{" "}
+              {routerForm && routerForm.hardwareType !== "mikrotik"
+                ? "On Omada, enter the AP's MAC so its clients and revenue can be counted. Status shows Online while customers are connected through it."
+                : "Its status is checked by pinging it from the router."}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -440,7 +458,7 @@ function NetworkMapPage() {
             }}
           >
             <div className="space-y-1.5">
-              <Label>MikroTik</Label>
+              <Label>Router / controller</Label>
               <select
                 className="flex h-11 w-full rounded-md border border-border bg-raised px-3 text-sm"
                 value={apForm.mikrotikId}
@@ -448,13 +466,13 @@ function NetworkMapPage() {
               >
                 {allRouters.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.name} · {r.siteName}
+                    {r.name} · {HARDWARE_LABELS[r.hardwareType]} · {r.siteName}
                   </option>
                 ))}
               </select>
             </div>
 
-            {routerForm && (routerForm.live?.neighbors.length ?? 0) > 0 && !apForm.id ? (
+            {routerForm && routerForm.hardwareType === "mikrotik" && (routerForm.live?.neighbors.length ?? 0) > 0 && !apForm.id ? (
               <div className="space-y-1.5">
                 <Label>Found on this router</Label>
                 <div className="flex flex-wrap gap-1.5">
@@ -503,10 +521,13 @@ function NetworkMapPage() {
                 <Input id="ap-ip" inputMode="decimal" value={apForm.ip} placeholder="192.168.88.20" onChange={(e) => setApForm({ ...apForm, ip: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ap-mac">MAC (optional)</Label>
+                <Label htmlFor="ap-mac">
+                  {routerForm && routerForm.hardwareType === "omada" ? "MAC (needed)" : "MAC (optional)"}
+                </Label>
                 <Input id="ap-mac" value={apForm.mac} placeholder="AA:BB:CC:DD:EE:FF" onChange={(e) => setApForm({ ...apForm, mac: e.target.value })} />
               </div>
             </div>
+            {routerForm && routerForm.hardwareType !== "mikrotik" ? null : (
             <div className="space-y-1.5">
               <Label htmlFor="ap-port">Router port it's plugged into</Label>
               <select
@@ -525,6 +546,7 @@ function NetworkMapPage() {
               </select>
               <p className="text-xs text-subtle">Used to count how many clients are connected through this AP.</p>
             </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="ap-model">Model (optional)</Label>
               <Input id="ap-model" value={apForm.model} placeholder="e.g. TP-Link EAP225" onChange={(e) => setApForm({ ...apForm, model: e.target.value })} />
@@ -641,6 +663,57 @@ function RouterStatus({ r }: { r: MapRouter }) {
   );
 }
 
+/** Status card for Omada / Ruijie sites: there is no CPU, memory or port table to show, so say what we do know. */
+function VendorStatus({ r }: { r: MapRouter }) {
+  const ago = (iso: string | null) => {
+    if (!iso) return null;
+    const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+  };
+  const omada = r.hardwareType === "omada";
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex min-w-0 items-center gap-2 font-display text-lg font-semibold">
+          <Dot state={r.state} />
+          <span className="truncate">{r.name}</span>
+          <Badge tone="neutral">{HARDWARE_LABELS[r.hardwareType]}</Badge>
+        </h2>
+        <span className="flex items-center gap-1 text-xs text-muted">
+          <MapPin className="size-3" />
+          {r.siteName}
+        </span>
+      </div>
+      {r.state !== "ONLINE" && r.stateReason ? (
+        <p className={cn("mt-2 text-sm", r.state === "OFFLINE" ? "text-danger" : "text-warn")}>{r.stateReason}</p>
+      ) : null}
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-border p-3">
+          <p className="text-xs text-subtle">{omada ? "Controller" : "Gateway"}</p>
+          <p className="mt-1 font-display text-xl font-semibold">{LABEL[r.state]}</p>
+          <p className="text-[11px] text-subtle">
+            {omada ? "login check every minute" : r.hwSeenAt ? `last heard ${ago(r.hwSeenAt)}` : "not heard from yet"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-border p-3">
+          <p className="text-xs text-subtle">Devices online</p>
+          <p className="mt-1 font-display text-xl font-semibold tabular-nums">{r.hwActiveDevices}</p>
+          <p className="text-[11px] text-subtle">switched on by a package</p>
+        </div>
+      </div>
+      <p className="mt-3 rounded-lg border border-dashed border-border p-3 text-xs text-muted">
+        CPU, memory, port traffic and opening hours are MikroTik-only. This {omada ? "controller" : "gateway"} is
+        monitored by {omada ? "logging in to it" : "its check-ins to the portal"}; the portal URL to enter on the
+        device is on the{" "}
+        <Link to="/admin/network" className="text-accent underline">
+          Network page
+        </Link>
+        .
+      </p>
+    </Card>
+  );
+}
+
 /** APs earning well under the average of the tracked ones (needs at least 3 with data). */
 function findLowEarners(aps: AccessPointRow[]): Set<string> {
   const tracked = aps.filter((a) => a.revenue != null);
@@ -666,6 +739,7 @@ function ApTable({
   onDelete: (a: AccessPointRow) => void;
 }) {
   const lowEarners = findLowEarners(r.aps);
+  const vendor = r.hardwareType !== "mikrotik";
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between">
@@ -689,7 +763,7 @@ function ApTable({
       </div>
       {r.aps.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
-          No access points on this router. Add the APs that connect through it so their health shows on the map.
+          No access points on this {vendor ? "site" : "router"}. Add the APs that connect through it so they show on the map.
         </p>
       ) : (
         <div className="mt-3 overflow-x-auto">
@@ -698,9 +772,9 @@ function ApTable({
               <tr className="text-left text-xs uppercase tracking-wide text-subtle">
                 <th className="py-1.5 pr-2 font-medium">Access point</th>
                 <th className="py-1.5 pr-2 font-medium">Status</th>
-                <th className="py-1.5 pr-2 font-medium">Port</th>
+                {vendor ? null : <th className="py-1.5 pr-2 font-medium">Port</th>}
                 <th className="py-1.5 pr-2 text-right font-medium">Clients</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Signal</th>
+                {vendor ? null : <th className="py-1.5 pr-2 text-right font-medium">Signal</th>}
                 <th className="py-1.5 pr-2 text-right font-medium">Revenue</th>
                 <th className="w-16" />
               </tr>
@@ -715,7 +789,7 @@ function ApTable({
                       ) : null}
                       {a.name}
                     </p>
-                    <p className="text-xs text-subtle">{[a.ip, a.model].filter(Boolean).join(" · ") || "—"}</p>
+                    <p className="text-xs text-subtle">{[a.ip, vendor ? a.mac : null, a.model].filter(Boolean).join(" · ") || "—"}</p>
                   </td>
                   <td className="py-2 pr-2">
                     <span className="flex items-center gap-1.5">
@@ -724,14 +798,27 @@ function ApTable({
                     </span>
                     {a.latencyMs != null ? <span className="text-[11px] text-subtle">{a.latencyMs} ms</span> : null}
                   </td>
-                  <td className="py-2 pr-2 text-muted">{a.port ?? "—"}</td>
+                  {vendor ? null : <td className="py-2 pr-2 text-muted">{a.port ?? "—"}</td>}
                   <td className="py-2 pr-2 text-right tabular-nums">{a.clients ?? "—"}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums text-muted">
-                    {a.signalDbm != null ? `${a.signalDbm} dBm` : "—"}
-                  </td>
+                  {vendor ? null : (
+                    <td className="py-2 pr-2 text-right tabular-nums text-muted">
+                      {a.signalDbm != null ? `${a.signalDbm} dBm` : "—"}
+                    </td>
+                  )}
                   <td className="py-2 pr-2 text-right tabular-nums">
                     {a.revenue == null ? (
-                      <span className="text-[11px] text-subtle" title="Set the router port this AP is plugged into to track revenue">set port</span>
+                      <span
+                        className="text-[11px] text-subtle"
+                        title={
+                          r.hardwareType === "ruijie"
+                            ? "Ruijie's portal protocol does not say which AP a client is on"
+                            : r.hardwareType === "omada"
+                              ? "Add the AP's MAC to track revenue"
+                              : "Set the router port this AP is plugged into to track revenue"
+                        }
+                      >
+                        {r.hardwareType === "ruijie" ? "n/a" : r.hardwareType === "omada" ? "add MAC" : "set port"}
+                      </span>
                     ) : (
                       <>
                         <p className="font-medium">KES {a.revenue.toLocaleString()}</p>
@@ -766,10 +853,18 @@ function ApTable({
           </table>
         </div>
       )}
+      {vendor ? (
+        <p className="mt-3 text-xs text-subtle">
+          {r.hardwareType === "omada"
+            ? "Omada APs are not pinged from here: an AP shows Online while customers are connected through it (matched by the AP's MAC), otherwise grey. Client counts and revenue need the AP's MAC; revenue builds up as customers pay and use the Wi-Fi."
+            : "Ruijie's portal does not report which AP a client uses, so APs here are a list only: no live status, client counts or revenue."}
+        </p>
+      ) : (
       <p className="mt-3 text-xs text-subtle">
         Yellow "On · no income" means the AP is reachable but no paid customers were connected through it in the chosen period (new APs get a day first, and it only shows once the router port is set).
         Status comes from pinging each AP from the router. Client counts and revenue need the AP's router port (each AP on its own port); signal strength is only available for radios built into the MikroTik itself. Revenue is successful M-Pesa payments, split by where each customer was connected, and builds up as customers use the Wi-Fi.
       </p>
+      )}
     </Card>
   );
 }
