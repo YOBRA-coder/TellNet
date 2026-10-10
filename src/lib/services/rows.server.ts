@@ -276,8 +276,6 @@ export function mapMikroTik(row: SqlRow): MikroTik {
     id: String(row.id),
     hardwareType: asHardwareType(row.hardware_type),
     hwConfig: parseHwConfig(row.hw_config),
-    hwSeenAt: row.hw_seen_at ? iso(row.hw_seen_at) : null,
-    hwActiveDevices: 0,
     name: String(row.name),
     host: String(row.host),
     apiUser: String(row.api_user),
