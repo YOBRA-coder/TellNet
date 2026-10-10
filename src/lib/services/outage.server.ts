@@ -18,6 +18,7 @@
  */
 import { getSql } from "@/lib/db";
 import { activateFromPayment } from "@/lib/services/activation.server";
+import { probeStoredRouter } from "@/lib/services/hardware";
 import {
   getRouterCredentialsById,
   probeRouter,
@@ -172,10 +173,25 @@ export async function recordProbeResult(routerId: string, probe: ProbeLike) {
 /** Probe every router (not just the primary) and record the results. */
 export async function probeAllRouters(): Promise<number> {
   const sql = await getSql();
-  const rows = await sql<{ id: string }>`select id from mikrotiks order by is_primary desc, created_at`;
+  const rows = await sql<{ id: string; hardware_type: string }>`
+    select id, hardware_type from mikrotiks order by is_primary desc, created_at
+  `;
   let n = 0;
   await Promise.all(
     rows.map(async (r) => {
+      if (r.hardware_type !== "mikrotik") {
+        // Omada / Ruijie: probed by their own driver (controller login / gateway heartbeat).
+        try {
+          const probe = await probeStoredRouter(r.id);
+          if (probe) {
+            await recordProbeResult(r.id, probe);
+            n += 1;
+          }
+        } catch (err) {
+          console.error("[probe]", r.id, err);
+        }
+        return;
+      }
       const creds: RouterCreds | null = await getRouterCredentialsById(r.id);
       if (!creds || !creds.host || !creds.user) return;
       try {

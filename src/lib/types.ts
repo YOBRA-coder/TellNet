@@ -177,6 +177,10 @@ export type RouterOsMode = "rest" | "api6";
 
 export type MikroTik = {
   id: string;
+  /** mikrotik (default) | omada | ruijie */
+  hardwareType: "mikrotik" | "omada" | "ruijie";
+  /** Vendor extras (Omada ID/site/time unit, Ruijie gateway id). */
+  hwConfig: { omadacId?: string; omadaSite?: string; omadaTimeUnit?: "ms" | "us"; ruijieGwId?: string };
   name: string;
   host: string;
   apiUser: string;

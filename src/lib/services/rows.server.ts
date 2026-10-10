@@ -1,4 +1,5 @@
 import { asBool, asNumber, iso } from "@/lib/utils";
+import { asHardwareType, parseHwConfig } from "@/lib/hardware";
 import type {
   Customer,
   CustomerPackage,
@@ -273,6 +274,8 @@ export function mapMikroTik(row: SqlRow): MikroTik {
   }
   return {
     id: String(row.id),
+    hardwareType: asHardwareType(row.hardware_type),
+    hwConfig: parseHwConfig(row.hw_config),
     name: String(row.name),
     host: String(row.host),
     apiUser: String(row.api_user),

@@ -233,7 +233,12 @@ export async function applyOperatingHours(now = new Date()): Promise<number> {
     const fresh = (await sql<{ hours_applied: boolean; hours_state: string }>`select hours_applied, hours_state from mikrotiks where id = ${r.id}`)[0];
     if (fresh && !fresh.hours_applied) {
       const creds = await getRouterCredentialsById(r.id);
-      if (!creds) continue;
+      if (!creds) {
+        // Opening hours are only enforced on MikroTik (they switch hotspot users
+        // on/off). Other hardware has nothing to apply — don't retry forever.
+        await sql`update mikrotiks set hours_applied = true where id = ${r.id} and hardware_type <> 'mikrotik'`;
+        continue;
+      }
       try {
         await applyToRouter(creds, fresh.hours_state === "CLOSED");
         await sql`update mikrotiks set hours_applied = true where id = ${r.id}`;

@@ -22,10 +22,11 @@ import {
   releaseDeviceBind,
   tickLiveUsage,
 } from "@/lib/services/activation.server";
+import { disconnectUser, probeHwRouter, probeStoredRouter } from "@/lib/services/hardware";
+import { HARDWARE_LABELS, HARDWARE_TYPES, parseHwConfig, asHardwareType, type HardwareType } from "@/lib/hardware";
 import {
   applyRadiusToRouter,
   checkRadiusOnRouter,
-  disconnectUser,
   getRouterCredentialsById,
   normalizeRouterHost,
   pingRouter,
@@ -1221,9 +1222,9 @@ export const applyRadiusToRouters = createServerFn({ method: "POST" })
     }
     const sql = await getSql();
     const routers = await sql<{ id: string; name: string }>`
-      select id, name from mikrotiks order by is_primary desc, created_at
+      select id, name from mikrotiks where hardware_type = 'mikrotik' order by is_primary desc, created_at
     `;
-    if (routers.length === 0) return { ok: false as const, error: "No routers added yet." };
+    if (routers.length === 0) return { ok: false as const, error: "No MikroTik routers added yet." };
     const results: { id: string; name: string; ok: boolean; error: string | null }[] = [];
     for (const r of routers) {
       const creds = await getRouterCredentialsById(r.id);
@@ -1254,7 +1255,7 @@ export const checkRadiusRouters = createServerFn({ method: "POST" })
     const cfg = await getRadiusConfig();
     const sql = await getSql();
     const routers = await sql<{ id: string; name: string }>`
-      select id, name from mikrotiks order by is_primary desc, created_at
+      select id, name from mikrotiks where hardware_type = 'mikrotik' order by is_primary desc, created_at
     `;
     const checks = [];
     for (const r of routers) {
@@ -1275,9 +1276,16 @@ export const checkRadiusRouters = createServerFn({ method: "POST" })
 const mikrotikInput = z.object({
   id: z.string().optional(),
   name: z.string().min(2).max(60),
-  host: z.string().min(3).max(200),
+  /** MikroTik (default) | Omada | Ruijie. Existing MikroTik behaviour is unchanged. */
+  hardwareType: z.enum(HARDWARE_TYPES).default("mikrotik"),
+  /** Omada controller ID / site / time unit, Ruijie gateway id (all optional). */
+  hwOmadacId: z.string().max(80).optional(),
+  hwOmadaSite: z.string().max(80).optional(),
+  hwOmadaTimeUnit: z.enum(["ms", "us"]).optional(),
+  hwRuijieGwId: z.string().max(80).optional(),
+  host: z.string().max(200).default(""),
   port: z.number().int().min(1).max(65535).optional(),
-  apiUser: z.string().min(1).max(80),
+  apiUser: z.string().max(80).default(""),
   apiPassword: z.string().max(120).optional(),
   hotspotName: z.string().min(1).max(60).default("hotspot1"),
   ssl: z.boolean().default(false),
@@ -1351,7 +1359,7 @@ async function syncPrimaryToSettings() {
     }>`
       select host, api_user, api_password, hotspot_name
       from mikrotiks
-      where is_primary = true
+      where is_primary = true and hardware_type = 'mikrotik'
       limit 1
     `
   )[0];
@@ -1381,7 +1389,26 @@ export const saveMikroTik = createServerFn({ method: "POST" })
   .validator((data: unknown) => mikrotikInput.parse(data))
   .handler(async ({ data }) => {
     const sql = await getSql();
-    const host = normalizeRouterHost(data.host, data.ssl, data.port);
+    const hardwareType: HardwareType = data.hardwareType;
+    const isMikroTik = hardwareType === "mikrotik";
+    const label = HARDWARE_LABELS[hardwareType];
+    // Ruijie has no address/credentials to store (the gateway calls us), so its
+    // host is just a label; Omada's host is the controller URL (https, usually :8043).
+    const host =
+      hardwareType === "ruijie"
+        ? data.host.trim() || "Ruijie gateway"
+        : normalizeRouterHost(data.host, hardwareType === "omada" ? true : data.ssl, data.port);
+    if (!host) return { ok: false as const, error: isMikroTik ? "Enter the router address." : "Enter the controller address." };
+    if (hardwareType !== "ruijie" && !data.apiUser.trim()) {
+      return { ok: false as const, error: hardwareType === "omada" ? "Enter the Omada hotspot operator name." : "Enter the RouterOS user." };
+    }
+    const apiUser = hardwareType === "ruijie" ? data.apiUser.trim() || "n/a" : data.apiUser.trim();
+    const hwConfig = JSON.stringify({
+      ...(data.hwOmadacId?.trim() ? { omadacId: data.hwOmadacId.trim() } : {}),
+      ...(data.hwOmadaSite?.trim() ? { omadaSite: data.hwOmadaSite.trim() } : {}),
+      ...(data.hwOmadaTimeUnit ? { omadaTimeUnit: data.hwOmadaTimeUnit } : {}),
+      ...(data.hwRuijieGwId?.trim() ? { ruijieGwId: data.hwRuijieGwId.trim() } : {}),
+    });
     const id = data.id ?? nid("mt");
     const existing = data.id
       ? (
@@ -1396,9 +1423,12 @@ export const saveMikroTik = createServerFn({ method: "POST" })
     if (data.id && !existing) {
       return { ok: false as const, error: "Router not found." };
     }
-    const password = data.apiPassword || existing?.api_password;
+    const password = data.apiPassword || existing?.api_password || (hardwareType === "ruijie" ? "n/a" : "");
     if (!password) {
-      return { ok: false as const, error: "Enter the RouterOS password." };
+      return {
+        ok: false as const,
+        error: hardwareType === "omada" ? "Enter the hotspot operator password." : "Enter the RouterOS password.",
+      };
     }
 
     const count = await sql<{ n: number }>`select count(*)::int as n from mikrotiks`;
@@ -1414,16 +1444,19 @@ export const saveMikroTik = createServerFn({ method: "POST" })
     await sql`
       insert into mikrotiks (
         id, name, host, api_user, api_password, hotspot_name, ssl, insecure_tls, is_primary, status, api_mode, api_port, site_id, pause_on_outage,
-        hours_enabled, hours_json, hours_allow, hours_pause, hours_message
+        hours_enabled, hours_json, hours_allow, hours_pause, hours_message, hardware_type, hw_config
       ) values (
-        ${id}, ${data.name}, ${host}, ${data.apiUser}, ${password},
+        ${id}, ${data.name}, ${host}, ${apiUser}, ${password},
         ${data.hotspotName || "hotspot1"}, ${data.ssl}, ${data.insecureTls}, ${makePrimary}, 'UNKNOWN',
-        ${data.apiMode}, ${data.apiMode === "api6" ? (data.apiPort || data.port || 8728) : (data.port || null)},
+        ${isMikroTik ? data.apiMode : "rest"}, ${isMikroTik ? (data.apiMode === "api6" ? (data.apiPort || data.port || 8728) : (data.port || null)) : null},
         ${siteId}, ${data.pauseOnOutage ?? false},
         ${data.hoursEnabled ?? false}, ${data.hoursSchedule ? JSON.stringify(data.hoursSchedule) : null},
-        ${(data.hoursAllow ?? ["WEEKLY", "MONTHLY"]).join(",")}, ${data.hoursPause ?? true}, ${data.hoursMessage?.trim() || null}
+        ${(data.hoursAllow ?? ["WEEKLY", "MONTHLY"]).join(",")}, ${data.hoursPause ?? true}, ${data.hoursMessage?.trim() || null},
+        ${hardwareType}, ${hwConfig}
       )
       on conflict (id) do update set
+        hardware_type = excluded.hardware_type,
+        hw_config = excluded.hw_config,
         name = excluded.name,
         host = excluded.host,
         api_user = excluded.api_user,
@@ -1448,15 +1481,26 @@ export const saveMikroTik = createServerFn({ method: "POST" })
     // A new/changed schedule takes effect now, not at the next tick.
     await applyOperatingHours().catch(() => {});
 
-    const probe = await probeRouter({
-      host,
-      user: data.apiUser,
-      password,
-      hotspot: data.hotspotName || "hotspot1",
-      insecureTls: data.insecureTls,
-      apiMode: data.apiMode,
-      apiPort: data.apiMode === "api6" ? (data.apiPort || data.port || 8728) : undefined,
-    });
+    const probe = isMikroTik
+      ? await probeRouter({
+          host,
+          user: data.apiUser,
+          password,
+          hotspot: data.hotspotName || "hotspot1",
+          insecureTls: data.insecureTls,
+          apiMode: data.apiMode,
+          apiPort: data.apiMode === "api6" ? (data.apiPort || data.port || 8728) : undefined,
+        })
+      : await probeHwRouter({
+          id,
+          name: data.name,
+          type: hardwareType,
+          host,
+          user: apiUser,
+          password,
+          insecureTls: data.insecureTls,
+          config: JSON.parse(hwConfig),
+        });
     await persistProbe(id, probe);
     await syncPrimaryToSettings();
     let live = false;
@@ -1467,8 +1511,10 @@ export const saveMikroTik = createServerFn({ method: "POST" })
     await logEvent(
       probe.ok ? "ROUTER_ONLINE" : "ROUTER_OFFLINE",
       probe.ok
-        ? `MikroTik ${data.name} reached${probe.identity ? ` (${probe.identity})` : ""}. REST is live.`
-        : `MikroTik ${data.name} saved but unreachable. ${probe.error ?? ""}`.trim(),
+        ? isMikroTik
+          ? `MikroTik ${data.name} reached${probe.identity ? ` (${probe.identity})` : ""}. REST is live.`
+          : `${label} ${data.name} reached${probe.identity ? ` (${probe.identity})` : ""}.`
+        : `${label} ${data.name} saved but ${hardwareType === "ruijie" ? "not heard from yet" : "unreachable"}. ${probe.error ?? ""}`.trim(),
     );
     return { ok: true as const, id, probe, live };
   });
@@ -1488,11 +1534,68 @@ export const testMikroTik = createServerFn({ method: "POST" })
         insecureTls: z.boolean().optional(),
         apiMode: z.enum(["rest", "api6"]).optional(),
         apiPort: z.number().int().min(1).max(65535).optional(),
+        hardwareType: z.enum(HARDWARE_TYPES).optional(),
+        hwOmadacId: z.string().max(80).optional(),
+        hwOmadaSite: z.string().max(80).optional(),
+        hwOmadaTimeUnit: z.enum(["ms", "us"]).optional(),
+        hwRuijieGwId: z.string().max(80).optional(),
       })
       .parse(data),
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
+
+    // Omada / Ruijie: tested by their own driver (controller login / gateway heartbeat).
+    let hardwareType: HardwareType = data.hardwareType ?? "mikrotik";
+    const stored = data.id
+      ? (
+          await sql<{
+            name: string;
+            hardware_type: string;
+            host: string;
+            api_user: string;
+            api_password: string;
+            insecure_tls: boolean;
+            hw_config: string | null;
+          }>`
+            select name, hardware_type, host, api_user, api_password, insecure_tls, hw_config
+            from mikrotiks where id = ${data.id} limit 1
+          `
+        )[0]
+      : undefined;
+    if (!data.hardwareType && stored) hardwareType = asHardwareType(stored.hardware_type);
+    if (hardwareType !== "mikrotik") {
+      const host = data.host
+        ? normalizeRouterHost(data.host, hardwareType === "omada" ? true : (data.ssl ?? false), data.port)
+        : String(stored?.host ?? "");
+      const user = data.apiUser || String(stored?.api_user ?? "");
+      const password = data.apiPassword || String(stored?.api_password ?? "");
+      if (hardwareType === "omada" && (!host || !user || !password)) {
+        return { ok: false as const, error: "Controller URL, operator name and password are required." };
+      }
+      const prior = parseHwConfig(stored?.hw_config);
+      const probe = await probeHwRouter({
+        id: data.id ?? "test",
+        name: stored?.name ?? "test",
+        type: hardwareType,
+        host: host || "Ruijie gateway",
+        user,
+        password,
+        insecureTls: data.insecureTls ?? Boolean(stored?.insecure_tls),
+        config: {
+          ...prior,
+          ...(data.hwOmadacId?.trim() ? { omadacId: data.hwOmadacId.trim() } : {}),
+          ...(data.hwOmadaSite?.trim() ? { omadaSite: data.hwOmadaSite.trim() } : {}),
+          ...(data.hwOmadaTimeUnit ? { omadaTimeUnit: data.hwOmadaTimeUnit } : {}),
+          ...(data.hwRuijieGwId?.trim() ? { ruijieGwId: data.hwRuijieGwId.trim() } : {}),
+        },
+      });
+      if (data.id) await persistProbe(data.id, probe);
+      return probe.ok
+        ? { ok: true as const, probe }
+        : { ok: false as const, error: probe.error ?? "Unreachable.", probe };
+    }
+
     let apiMode: "rest" | "api6" = data.apiMode ?? "rest";
     let apiPort: number | undefined = data.apiPort;
     let host = data.host
@@ -1563,13 +1666,22 @@ export const refreshMikroTiks = createServerFn({ method: "POST" })
       insecure_tls: boolean;
       api_mode: string | null;
       api_port: number | null;
+      hardware_type: string;
     }>`
-      select id, host, api_user, api_password, hotspot_name, insecure_tls, api_mode, api_port
+      select id, host, api_user, api_password, hotspot_name, insecure_tls, api_mode, api_port, hardware_type
       from mikrotiks
       order by is_primary desc, created_at
     `;
     let online = 0;
     for (const row of rows) {
+      if (row.hardware_type !== "mikrotik") {
+        const hwProbe = await probeStoredRouter(row.id);
+        if (hwProbe) {
+          await persistProbe(row.id, hwProbe);
+          if (hwProbe.ok) online += 1;
+        }
+        continue;
+      }
       const probe = await probeRouter({
         host: String(row.host),
         user: String(row.api_user),

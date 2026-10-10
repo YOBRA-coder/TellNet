@@ -182,7 +182,8 @@ export async function refreshNetworkLive(opts: { routerId?: string; maxAgeMs?: n
   const sql = await getSql();
   const rows = await sql<{ id: string; live_json: string | null; live_at: string | null }>`
     select id, live_json, live_at from mikrotiks
-    where (${opts.routerId ?? null}::text is null or id = ${opts.routerId ?? null})
+    where hardware_type = 'mikrotik'
+      and (${opts.routerId ?? null}::text is null or id = ${opts.routerId ?? null})
     order by is_primary desc, created_at
   `;
   const maxAge = opts.maxAgeMs ?? 0;
@@ -249,7 +250,7 @@ export async function refreshNetworkLive(opts: { routerId?: string; maxAgeMs?: n
  */
 export async function sampleApUsage(): Promise<number> {
   const sql = await getSql();
-  const routers = await sql<{ id: string }>`select id from mikrotiks`;
+  const routers = await sql<{ id: string }>`select id from mikrotiks where hardware_type = 'mikrotik'`;
   let recorded = 0;
   for (const r of routers) {
     const aps = await sql<{ id: string; port: string | null }>`

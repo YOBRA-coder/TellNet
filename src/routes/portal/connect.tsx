@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDevice } from "@/hooks/use-device";
+import { useHardwareHandoff } from "@/hooks/use-hardware-handoff";
 import { deviceInfo } from "@/lib/device";
 import { formatRemaining, formatStamp } from "@/lib/format";
 import { APP_NAME } from "@/lib/brand-copy";
@@ -55,6 +56,8 @@ function ConnectPage() {
   const connected = Boolean(
     (connect.isSuccess && connect.data?.ok) || access?.connected,
   );
+
+  useHardwareHandoff(connected, device?.token);
 
   if (!ready || account.isLoading) {
     return (

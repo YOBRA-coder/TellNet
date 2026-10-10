@@ -4,11 +4,17 @@ import { nid, asNumber } from "@/lib/utils";
 import {
   MikroTikError,
   createAndActivateUser,
-  disableUser,
-  disconnectUser,
   randomPassword,
   usernameForPhone,
 } from "./mikrotik.server";
+import {
+  HardwareError,
+  authorizeOnHardware,
+  disableUser,
+  disconnectUser,
+  linkAuthorization,
+  resolveHardwareTarget,
+} from "./hardware";
 import { expireDuePackages } from "./expiry.server";
 import { awardLoyaltyForPayment, applyReferralMinutesForPayment } from "./loyalty.server";
 import { getSettings, logEvent } from "./settings.server";
@@ -269,30 +275,44 @@ export async function activateFromPayment(
   const downloadKbps = Math.min(effDownload, capacity.perUserMaxKbps || effDownload);
   const uploadKbps = Math.min(effUpload, capacity.perUserMaxKbps || effUpload);
 
+  // Omada / Ruijie customers are switched on by their vendor driver (keyed by the
+  // client MAC the portal redirect gave us). Everyone else takes the original
+  // MikroTik path below, unchanged.
+  let hwAuth: Awaited<ReturnType<typeof authorizeOnHardware>> | null = null;
+  let activationError = "";
   try {
-    await createAndActivateUser({
-      username,
-      password,
-      downloadKbps,
-      uploadKbps,
-      sessionTimeoutSeconds: remaining,
+    const hwTarget = await resolveHardwareTarget({
+      deviceToken: device?.token,
       customerId: String(pay.customer_id),
-      maxDevices: settings.oneDevicePerPackage ? packageMaxDevices : 1,
-      category: effCategory === "STUDENT" ? "STUDENT" : "STANDARD",
-      blockedDomains:
-        effCategory === "STUDENT"
-          ? settings.studentBlockedDomains
-              .split(",")
-              .map((d) => d.trim())
-              .filter(Boolean)
-          : undefined,
     });
-    // Bought (or re-pushed) while the router is closed for the night: the
-    // login exists but stays switched off until the router opens.
-    const { isPrimaryClosed } = await import("./hours.server");
-    if (await isPrimaryClosed()) await disableUser(username).catch(() => {});
+    if (hwTarget) {
+      hwAuth = await authorizeOnHardware(hwTarget, { username, seconds: remaining });
+    } else {
+      await createAndActivateUser({
+        username,
+        password,
+        downloadKbps,
+        uploadKbps,
+        sessionTimeoutSeconds: remaining,
+        customerId: String(pay.customer_id),
+        maxDevices: settings.oneDevicePerPackage ? packageMaxDevices : 1,
+        category: effCategory === "STUDENT" ? "STUDENT" : "STANDARD",
+        blockedDomains:
+          effCategory === "STUDENT"
+            ? settings.studentBlockedDomains
+                .split(",")
+                .map((d) => d.trim())
+                .filter(Boolean)
+            : undefined,
+      });
+      // Bought (or re-pushed) while the router is closed for the night: the
+      // login exists but stays switched off until the router opens.
+      const { isPrimaryClosed } = await import("./hours.server");
+      if (await isPrimaryClosed()) await disableUser(username).catch(() => {});
+    }
   } catch (err) {
-    const failed = err instanceof MikroTikError;
+    const failed = err instanceof MikroTikError || err instanceof HardwareError;
+    if (err instanceof HardwareError) activationError = ` ${err.message}`;
     if (!packRow) {
       const id = nid("cp");
       await sql`
@@ -326,7 +346,7 @@ export async function activateFromPayment(
     `;
     await logEvent(
       "ACTIVATION_FAILED",
-      `Payment ${String(pay.mpesa_transaction_id ?? paymentId)} confirmed but the router could not activate the user.`,
+      `Payment ${String(pay.mpesa_transaction_id ?? paymentId)} confirmed but the router could not activate the user.${activationError}`,
     );
     return {
       ok: false,
@@ -373,6 +393,7 @@ export async function activateFromPayment(
   await sql`
     update customer_packages set radius_password = ${password} where id = ${packRow.id}
   `;
+  if (hwAuth) await linkAuthorization(username, String(packRow.id));
 
   if (
     settings.oneDevicePerPackage &&
@@ -433,7 +454,7 @@ export async function activateFromPayment(
       ip_address, mac_address, device_information, session_start, last_seen, status
     ) values (
       ${sessionId}, ${pay.customer_id}, ${pay.package_id}, ${packRow.id},
-      ${username}, ${nextIp()}, ${randomMac()}, ${device?.info ?? "Captive portal"},
+      ${username}, ${hwAuth?.clientIp ?? nextIp()}, ${hwAuth?.clientMac ?? randomMac()}, ${device?.info ?? "Captive portal"},
       now(), now(), 'ACTIVE'
     )
   `;

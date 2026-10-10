@@ -42,6 +42,8 @@ import { Route as ApiCronTickRouteImport } from './routes/api/cron.tick'
 import { Route as ApiMpesaCallbackRouteImport } from './routes/api/mpesa.callback'
 import { Route as ApiPayCallbackRouteImport } from './routes/api/pay.callback'
 import { Route as PortalLegalDocRouteImport } from './routes/portal/legal.$doc'
+import { Route as ApiHwEntryRouterIdRouteImport } from './routes/api/hw.entry.$routerId'
+import { Route as ApiHwWdRouterIdSplatRouteImport } from './routes/api/hw.wd.$routerId.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -208,6 +210,16 @@ const PortalLegalDocRoute = PortalLegalDocRouteImport.update({
   path: '/legal/$doc',
   getParentRoute: () => PortalRouteRoute,
 } as any)
+const ApiHwEntryRouterIdRoute = ApiHwEntryRouterIdRouteImport.update({
+  id: '/api/hw/entry/$routerId',
+  path: '/api/hw/entry/$routerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHwWdRouterIdSplatRoute = ApiHwWdRouterIdSplatRouteImport.update({
+  id: '/api/hw/wd/$routerId/$',
+  path: '/api/hw/wd/$routerId/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -243,6 +255,8 @@ export interface FileRoutesByFullPath {
   '/api/mpesa/callback': typeof ApiMpesaCallbackRoute
   '/api/pay/callback': typeof ApiPayCallbackRoute
   '/portal/legal/$doc': typeof PortalLegalDocRoute
+  '/api/hw/entry/$routerId': typeof ApiHwEntryRouterIdRoute
+  '/api/hw/wd/$routerId/$': typeof ApiHwWdRouterIdSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -276,6 +290,8 @@ export interface FileRoutesByTo {
   '/api/mpesa/callback': typeof ApiMpesaCallbackRoute
   '/api/pay/callback': typeof ApiPayCallbackRoute
   '/portal/legal/$doc': typeof PortalLegalDocRoute
+  '/api/hw/entry/$routerId': typeof ApiHwEntryRouterIdRoute
+  '/api/hw/wd/$routerId/$': typeof ApiHwWdRouterIdSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -312,6 +328,8 @@ export interface FileRoutesById {
   '/api/mpesa/callback': typeof ApiMpesaCallbackRoute
   '/api/pay/callback': typeof ApiPayCallbackRoute
   '/portal/legal/$doc': typeof PortalLegalDocRoute
+  '/api/hw/entry/$routerId': typeof ApiHwEntryRouterIdRoute
+  '/api/hw/wd/$routerId/$': typeof ApiHwWdRouterIdSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -349,6 +367,8 @@ export interface FileRouteTypes {
     | '/api/mpesa/callback'
     | '/api/pay/callback'
     | '/portal/legal/$doc'
+    | '/api/hw/entry/$routerId'
+    | '/api/hw/wd/$routerId/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -382,6 +402,8 @@ export interface FileRouteTypes {
     | '/api/mpesa/callback'
     | '/api/pay/callback'
     | '/portal/legal/$doc'
+    | '/api/hw/entry/$routerId'
+    | '/api/hw/wd/$routerId/$'
   id:
     | '__root__'
     | '/'
@@ -417,6 +439,8 @@ export interface FileRouteTypes {
     | '/api/mpesa/callback'
     | '/api/pay/callback'
     | '/portal/legal/$doc'
+    | '/api/hw/entry/$routerId'
+    | '/api/hw/wd/$routerId/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -428,6 +452,8 @@ export interface RootRouteChildren {
   ApiCronTickRoute: typeof ApiCronTickRoute
   ApiMpesaCallbackRoute: typeof ApiMpesaCallbackRoute
   ApiPayCallbackRoute: typeof ApiPayCallbackRoute
+  ApiHwEntryRouterIdRoute: typeof ApiHwEntryRouterIdRoute
+  ApiHwWdRouterIdSplatRoute: typeof ApiHwWdRouterIdSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -663,6 +689,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalLegalDocRouteImport
       parentRoute: typeof PortalRouteRoute
     }
+    '/api/hw/entry/$routerId': {
+      id: '/api/hw/entry/$routerId'
+      path: '/api/hw/entry/$routerId'
+      fullPath: '/api/hw/entry/$routerId'
+      preLoaderRoute: typeof ApiHwEntryRouterIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hw/wd/$routerId/$': {
+      id: '/api/hw/wd/$routerId/$'
+      path: '/api/hw/wd/$routerId/$'
+      fullPath: '/api/hw/wd/$routerId/$'
+      preLoaderRoute: typeof ApiHwWdRouterIdSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -745,6 +785,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronTickRoute: ApiCronTickRoute,
   ApiMpesaCallbackRoute: ApiMpesaCallbackRoute,
   ApiPayCallbackRoute: ApiPayCallbackRoute,
+  ApiHwEntryRouterIdRoute: ApiHwEntryRouterIdRoute,
+  ApiHwWdRouterIdSplatRoute: ApiHwWdRouterIdSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

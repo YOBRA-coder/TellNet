@@ -32,6 +32,7 @@ import {
 } from "@/lib/services/rows.server";
 import type { ActiveAccess, Package } from "@/lib/types";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
+import { bindClientContext, takeHandoffUrl } from "@/lib/services/hardware";
 
 const identitySchema = z.object({
   token: z.string().min(8).max(80),
@@ -1101,3 +1102,23 @@ export const redeemPoints = createServerFn({ method: "POST" })
       deviceToken: data.token,
     });
   });
+
+
+/**
+ * Omada / Ruijie: the vendor's portal redirect (MAC, AP, SSID ...) was stored under
+ * an id that travels in the portal URL (?hwc=). Tie it to this browser so the
+ * payment can later switch exactly this device on. No-op for MikroTik.
+ */
+export const bindHardwareClient = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z.object({ token: z.string().min(8).max(200), ctx: z.string().min(8).max(80) }).parse(data),
+  )
+  .handler(async ({ data }) => ({ ok: await bindClientContext(data.ctx, data.token) }));
+
+/**
+ * Ruijie only: after payment the browser must visit the gateway's auth URL once
+ * to finish login. Returns that URL (once) or null.
+ */
+export const getHardwareHandoff = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string().min(8).max(200) }).parse(data))
+  .handler(async ({ data }) => ({ url: await takeHandoffUrl(data.token) }));

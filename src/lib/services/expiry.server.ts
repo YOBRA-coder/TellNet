@@ -1,5 +1,5 @@
 import { getSql } from "@/lib/db";
-import { disableUser, disconnectUser } from "./mikrotik.server";
+import { disableUser, disconnectUser } from "./hardware";
 import { logEvent } from "./settings.server";
 
 /**

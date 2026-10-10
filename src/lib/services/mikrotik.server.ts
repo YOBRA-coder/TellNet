@@ -75,7 +75,8 @@ export async function getRouterCredentials(): Promise<RouterCreds | null> {
   }>`
     select host, api_user, api_password, hotspot_name, insecure_tls, api_mode, api_port
     from mikrotiks
-    where is_primary = true
+    where hardware_type = 'mikrotik'
+    order by is_primary desc, created_at
     limit 1
   `;
   const row = primary[0];
@@ -117,7 +118,7 @@ export async function getRouterCredentialsById(
     }>`
       select host, api_user, api_password, hotspot_name, insecure_tls, api_mode, api_port
       from mikrotiks
-      where id = ${id}
+      where id = ${id} and hardware_type = 'mikrotik'
       limit 1
     `
   )[0];
