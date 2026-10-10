@@ -143,6 +143,37 @@ export const getDashboard = createServerFn({ method: "POST" })
         `,
       ]);
 
+    // Extra read-only figures for the dashboard (same "real M-Pesa money only" rule as today's revenue).
+    const extra = (
+      await sql<{
+        yesterday: number;
+        week: number;
+        month: number;
+        expiring: number;
+        new_customers: number;
+      }>`
+        select
+          (select coalesce(sum(amount), 0)::int from payments
+             where status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%'
+               and created_at >= ${ps.prevDayStart}::timestamptz and created_at < ${ps.dayStart}::timestamptz
+               and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})) as yesterday,
+          (select coalesce(sum(amount), 0)::int from payments
+             where status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%'
+               and created_at >= ${ps.weekStart}::timestamptz
+               and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})) as week,
+          (select coalesce(sum(amount), 0)::int from payments
+             where status = 'SUCCESS' and coalesce(mpesa_transaction_id, '') not like 'PTS-%' and coalesce(mpesa_transaction_id, '') not like 'VCH-%'
+               and created_at >= ${ps.monthStart}::timestamptz
+               and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})) as month,
+          (select count(*)::int from customer_packages cp join customers c on c.id = cp.customer_id
+             where cp.status = 'ACTIVE' and cp.expiry_time > now() and cp.expiry_time <= now() + interval '1 hour'
+               and (${site}::text is null or coalesce(c.site_id, 'site_default') = ${site})) as expiring,
+          (select count(*)::int from customers c
+             where c.created_at >= ${ps.dayStart}::timestamptz
+               and (${site}::text is null or coalesce(c.site_id, 'site_default') = ${site})) as new_customers
+      `
+    )[0];
+
     const isps = ispsRaw.map(mapIsp);
     const mikrotiks = mikrotiksRaw.map(mapMikroTik);
     const events = eventsRaw.map(mapEvent);
@@ -165,6 +196,11 @@ export const getDashboard = createServerFn({ method: "POST" })
         expiredPackages: asNumber(c?.expired_pkg),
         totalCustomers: asNumber(c?.customers),
         awaitingActivation: asNumber(c?.awaiting),
+        yesterdayRevenue: asNumber(extra?.yesterday),
+        weekRevenue: asNumber(extra?.week),
+        monthRevenue: asNumber(extra?.month),
+        expiringSoon: asNumber(extra?.expiring),
+        newCustomersToday: asNumber(extra?.new_customers),
       },
       isps,
       mikrotiks,

@@ -4,9 +4,12 @@ import {
   Activity,
   AlertTriangle,
   Banknote,
+  CheckCircle2,
+  Clock,
   Database,
   Radio,
   Router as RouterIcon,
+  UserPlus,
   Users,
   Wifi,
   WifiOff,
@@ -21,6 +24,7 @@ import { SiteSwitcher } from "@/components/admin/site-switcher";
 import { useAdminSite } from "@/hooks/use-admin-site";
 import { formatBytes, formatKes, formatStamp } from "@/lib/format";
 import { formatPhoneDisplay } from "@/lib/phone";
+import { HARDWARE_LABELS } from "@/lib/hardware";
 import { getDashboard, getDataUsage } from "@/lib/fn/admin";
 import { cn } from "@/lib/utils";
 
@@ -87,18 +91,6 @@ function DashboardPage() {
       </div>
     );
   }
-  if (q.isLoading && !q.data) {
-    return (
-      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton
-            key={i}
-            className="h-32 rounded-2xl border border-border/60 bg-card/70"
-          />
-        ))}
-      </div>
-    );
-  }
 
   if (q.isError) {
     return (
@@ -137,11 +129,60 @@ function DashboardPage() {
     );
   }
 
-  const { cards, isps, events, recent, settings, router } = q.data;
-  const internet =
-    isps.some((i) => i.status === "ONLINE") && router.reachable
-      ? "Online"
-      : "Degraded";
+  const { cards, isps, events, recent, settings, router, mikrotiks } = q.data;
+  const cur = settings.currency;
+
+  // Network health is judged from every registered router/AP (MikroTik, Omada, Ruijie),
+  // not only the legacy MikroTik ping.
+  const routersOnline = mikrotiks.filter((m) => m.status === "ONLINE");
+  const routersDown = mikrotiks.filter((m) => m.status !== "ONLINE");
+  const routerOk = mikrotiks.length > 0 ? routersOnline.length > 0 : router.reachable;
+  const ispsDown = isps.filter((i) => i.status !== "ONLINE");
+  const ispOk = isps.length === 0 || isps.some((i) => i.status === "ONLINE");
+  const internet = routerOk && ispOk ? "Online" : "Degraded";
+
+  // The few things that need the operator's attention right now, most urgent first.
+  const attention: { tone: "danger" | "warn" | "info"; text: string; to: string }[] = [];
+  if (cards.awaitingActivation > 0)
+    attention.push({
+      tone: "danger",
+      text: `${cards.awaitingActivation} paid customer${cards.awaitingActivation === 1 ? "" : "s"} not activated yet — use "Retry activation".`,
+      to: "/admin/customers",
+    });
+  if (routersDown.length > 0)
+    attention.push({
+      tone: "danger",
+      text: `${routersDown.length} of ${mikrotiks.length} router${mikrotiks.length === 1 ? "" : "s"}/access point${mikrotiks.length === 1 ? "" : "s"} offline: ${routersDown.map((m) => m.name).join(", ")}.`,
+      to: "/admin/network",
+    });
+  if (ispsDown.length > 0)
+    attention.push({
+      tone: "warn",
+      text: `Internet path ${ispsDown.map((i) => `${i.name} (${i.status.toLowerCase()})`).join(", ")}.`,
+      to: "/admin/network",
+    });
+  if (cards.todayFailed > 0)
+    attention.push({
+      tone: "info",
+      text: `${cards.todayFailed} failed or cancelled payment${cards.todayFailed === 1 ? "" : "s"} today.`,
+      to: "/admin/payments",
+    });
+  if (cards.expiringSoon > 0)
+    attention.push({
+      tone: "info",
+      text: `${cards.expiringSoon} package${cards.expiringSoon === 1 ? "" : "s"} expire within the hour.`,
+      to: "/admin/live-users",
+    });
+
+  const quick = [
+    { to: "/admin/customers", label: "Customers" },
+    { to: "/admin/live-users", label: "Live users" },
+    { to: "/admin/payments", label: "Payments" },
+    { to: "/admin/packages", label: "Packages" },
+    { to: "/admin/vouchers", label: "Vouchers" },
+    { to: "/admin/network", label: "Network" },
+    { to: "/admin/reports", label: "Reports" },
+  ] as const;
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4 pb-6 sm:space-y-5 lg:space-y-6">
@@ -156,7 +197,7 @@ function DashboardPage() {
               Dashboard
             </h1>
             <p className="mt-1 text-xs text-muted sm:text-sm">
-              Network, customers and payment activity at a glance.
+              {routersOnline.length}/{mikrotiks.length} router{mikrotiks.length === 1 ? "" : "s"} online · {cards.onlineUsers} user{cards.onlineUsers === 1 ? "" : "s"} connected now
             </p>
           </div>
           <div className="flex w-full items-center gap-2 sm:w-auto">
@@ -165,7 +206,7 @@ function DashboardPage() {
             </div>
             <div className="shrink-0 rounded-full">
               <Badge tone={internet === "Online" ? "ok" : "warn"}>
-              <span className="mr-1.5 inline-block size-1.5 rounded-full bg-current" />
+                <span className="mr-1.5 inline-block size-1.5 rounded-full bg-current" />
                 {internet}
               </Badge>
             </div>
@@ -173,51 +214,96 @@ function DashboardPage() {
         </div>
       </div>
 
+      {/* 1. What needs me right now */}
+      {attention.length === 0 ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-ok/25 bg-ok/10 px-4 py-3 text-sm text-ok">
+          <CheckCircle2 className="size-5 shrink-0" />
+          All clear — payments are activating, routers are online.
+        </div>
+      ) : (
+        <Card className="overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-0 shadow-sm">
+          <h2 className="flex items-center gap-2 border-b border-border/70 px-4 py-3 font-display text-base font-semibold sm:px-5">
+            <AlertTriangle className="size-4 text-warn" />
+            Needs attention ({attention.length})
+          </h2>
+          <ul className="divide-y divide-border/70">
+            {attention.map((a, i) => (
+              <li key={i}>
+                <Link
+                  to={a.to}
+                  className="flex min-h-12 items-center gap-3 px-4 py-3 text-sm transition hover:bg-muted/30 sm:px-5"
+                >
+                  <span
+                    className={cn(
+                      "size-2.5 shrink-0 rounded-full",
+                      a.tone === "danger" ? "bg-danger" : a.tone === "warn" ? "bg-warn" : "bg-accent",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">{a.text}</span>
+                  <span className="shrink-0 text-accent">Open →</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* 2. The four numbers that matter */}
       <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Today's revenue"
-          value={formatKes(cards.todayRevenue, settings.currency)}
+          value={formatKes(cards.todayRevenue, cur)}
           icon={Banknote}
           note={
-            "Successful M-Pesa payments only — failed, cancelled and pending are not counted." +
+            `Yesterday ${formatKes(cards.yesterdayRevenue, cur)}. Successful M-Pesa payments only.` +
             (cards.todayVouchers > 0
-              ? ` ${cards.todayVouchers} voucher${cards.todayVouchers === 1 ? "" : "s"} redeemed today (${formatKes(cards.todayVoucherValue, settings.currency)}) not included.`
+              ? ` ${cards.todayVouchers} voucher${cards.todayVouchers === 1 ? "" : "s"} (${formatKes(cards.todayVoucherValue, cur)}) not included.`
               : "")
           }
         />
-        <Stat label="Online users" value={String(cards.onlineUsers)} icon={Wifi} />
+        <Stat label="Online now" value={String(cards.onlineUsers)} icon={Wifi} note="Devices connected right now." />
         <Stat
           label="Active packages"
           value={String(cards.activePackages)}
           icon={Users}
+          note={cards.expiringSoon > 0 ? `${cards.expiringSoon} expiring within the hour.` : "Paid and running."}
         />
         <Stat
-          label="Awaiting activation"
+          label="Paid, not activated"
           value={String(cards.awaitingActivation)}
           icon={AlertTriangle}
           warn={cards.awaitingActivation > 0}
-        />
-        <Stat
-          label="Expired packages"
-          value={String(cards.expiredPackages)}
-          icon={WifiOff}
-        />
-        <Stat
-          label="Total customers"
-          value={String(cards.totalCustomers)}
-          icon={Users}
-        />
-        <Stat
-          label="Successful payments"
-          value={String(cards.todaySuccess)}
-          icon={Activity}
-        />
-        <Stat
-          label="Failed payments"
-          value={String(cards.todayFailed)}
-          icon={AlertTriangle}
+          note={cards.awaitingActivation > 0 ? "Customers paid but have no internet yet." : "Everyone who paid is online."}
         />
       </div>
+
+      {/* 3. Supporting numbers, smaller */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <Mini label="This week" value={formatKes(cards.weekRevenue, cur)} icon={Banknote} />
+        <Mini label="This month" value={formatKes(cards.monthRevenue, cur)} icon={Banknote} />
+        <Mini
+          label="Payments today"
+          value={`${cards.todaySuccess} ok · ${cards.todayFailed} failed`}
+          icon={Activity}
+          warn={cards.todayFailed > 0}
+        />
+        <Mini label="New customers today" value={String(cards.newCustomersToday)} icon={UserPlus} />
+        <Mini label="Total customers" value={String(cards.totalCustomers)} icon={Users} />
+        <Mini label="Expired packages" value={String(cards.expiredPackages)} icon={WifiOff} />
+      </div>
+
+      {/* 4. One tap to the pages used most */}
+      <nav aria-label="Quick links" className="flex gap-2 overflow-x-auto pb-1">
+        {quick.map((l) => (
+          <Link
+            key={l.to}
+            to={l.to}
+            className="inline-flex min-h-10 shrink-0 items-center rounded-full border border-border bg-card/90 px-4 text-sm font-medium transition hover:border-accent hover:text-accent"
+          >
+            {l.label}
+          </Link>
+        ))}
+      </nav>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] lg:items-start">
         <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5 lg:p-6">
@@ -232,69 +318,84 @@ function DashboardPage() {
             </div>
             <Link
               to="/admin/payments"
-              className="inline-flex min-h-9 items-center text-sm font-medium text-accent transition hover:text-fg"
+              className="inline-flex min-h-10 items-center text-sm font-medium text-accent transition hover:text-fg"
             >
               All transactions
               <span className="ml-1">→</span>
             </Link>
           </div>
-          <ul className="divide-y divide-border/70">
-            {recent.map((p) => (
-              <li
-                key={p.id}
-                className="flex min-w-0 flex-col gap-2 py-3.5 text-sm min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between sm:py-4"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">
-                    {formatPhoneDisplay(p.phone)} · {p.packageName}
-                  </p>
-                  <p className="mt-1 truncate font-mono text-[10px] text-subtle sm:text-xs">
-                    {p.mpesaTransactionId ?? "pending"} · {formatStamp(p.createdAt)}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center justify-between gap-3 min-[420px]:flex-col min-[420px]:items-end">
-                  <span className="font-medium tabular-nums">
-                    {formatKes(p.amount, settings.currency)}
-                  </span>
-                  <div className="flex flex-wrap justify-end gap-1">
-                    <PaymentBadge status={p.status} />
-                    <ActivationBadge status={p.activationStatus} />
+          {recent.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted">No payments yet.</p>
+          ) : (
+            <ul className="divide-y divide-border/70">
+              {recent.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex min-w-0 flex-col gap-2 py-3.5 text-sm min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between sm:py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {formatPhoneDisplay(p.phone)} · {p.packageName}
+                    </p>
+                    <p className="mt-1 truncate font-mono text-[10px] text-subtle sm:text-xs">
+                      {p.mpesaTransactionId ?? "pending"} · {formatStamp(p.createdAt)}
+                    </p>
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  <div className="flex shrink-0 items-center justify-between gap-3 min-[420px]:flex-col min-[420px]:items-end">
+                    <span className="font-medium tabular-nums">
+                      {formatKes(p.amount, cur)}
+                    </span>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <PaymentBadge status={p.status} />
+                      <ActivationBadge status={p.activationStatus} />
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
 
         <div className="min-w-0 space-y-4">
           <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
             <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold">
               <RouterIcon className="size-4 text-accent" />
-              MikroTik routers
+              Routers &amp; access points
+              {mikrotiks.length > 0 ? (
+                <span className="ml-auto text-xs font-normal text-muted">
+                  {routersOnline.length}/{mikrotiks.length} online
+                </span>
+              ) : null}
             </h2>
-            {q.data.mikrotiks.length === 0 ? (
+            {mikrotiks.length === 0 ? (
               <p className="text-sm text-subtle">
-                No MikroTik registered yet — add one on Network.
+                Nothing registered yet — add a MikroTik, Omada or Ruijie site on Network.
               </p>
             ) : (
               <ul className="space-y-2">
-                {q.data.mikrotiks.map((mt) => (
+                {mikrotiks.map((mt) => (
                   <li
                     key={mt.id}
                     className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2.5 text-sm"
                   >
-                    <span className="flex items-center gap-2 min-w-0">
+                    <span className="flex min-w-0 items-center gap-2">
                       <span
                         className={cn(
                           "size-2 shrink-0 rounded-full",
                           mt.status === "ONLINE" ? "bg-ok" : "bg-danger",
                         )}
                       />
-                      <span className="truncate">
-                        {mt.name}
-                        {mt.isPrimary ? (
-                          <span className="ml-1 text-xs text-subtle">(primary)</span>
-                        ) : null}
+                      <span className="min-w-0">
+                        <span className="block truncate">
+                          {mt.name}
+                          {mt.isPrimary ? (
+                            <span className="ml-1 text-xs text-subtle">(primary)</span>
+                          ) : null}
+                        </span>
+                        <span className="block truncate text-xs text-subtle">
+                          {HARDWARE_LABELS[mt.hardwareType]}
+                          {mt.status !== "ONLINE" && mt.lastPingAt ? ` · last seen ${formatStamp(mt.lastPingAt)}` : ""}
+                        </span>
                       </span>
                     </span>
                     <Badge tone={mt.status === "ONLINE" ? "ok" : "danger"}>
@@ -306,10 +407,42 @@ function DashboardPage() {
             )}
             <Link
               to="/admin/network"
-              className="mt-4 inline-flex min-h-9 items-center text-sm font-medium text-accent transition hover:text-fg"
+              className="mt-4 inline-flex min-h-10 items-center text-sm font-medium text-accent transition hover:text-fg"
             >
-              Manage routers <span className="ml-1">→</span>
+              Manage network <span className="ml-1">→</span>
             </Link>
+          </Card>
+
+          <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
+            <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold">
+              <Radio className="size-4 text-accent" />
+              ISP status
+            </h2>
+            {isps.length === 0 ? (
+              <p className="text-sm text-subtle">No internet paths added yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {isps.map((isp) => (
+                  <li
+                    key={isp.id}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2.5 text-sm"
+                  >
+                    <span className="truncate">{isp.name}</span>
+                    <Badge
+                      tone={
+                        isp.status === "ONLINE" ? "ok" : isp.status === "DEGRADED" ? "warn" : "danger"
+                      }
+                    >
+                      {isp.status}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-4 text-xs leading-relaxed text-subtle">
+              TelNet does not steer traffic. The router owns WAN failover — packages
+              stay valid across every path.
+            </p>
           </Card>
 
           <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
@@ -321,7 +454,8 @@ function DashboardPage() {
               <select
                 value={preset}
                 onChange={(e) => setPreset(e.target.value as UsagePreset)}
-                className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs font-medium outline-none transition focus:ring-2 focus:ring-accent/20 min-[420px]:w-auto"
+                aria-label="Data usage period"
+                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-xs font-medium outline-none transition focus:ring-2 focus:ring-accent/20 min-[420px]:w-auto"
               >
                 {USAGE_PRESETS.map((p) => (
                   <option key={p.key} value={p.key}>
@@ -337,7 +471,7 @@ function DashboardPage() {
                   value={customFrom}
                   max={customTo}
                   onChange={(e) => setCustomFrom(e.target.value)}
-                  className="h-9 min-w-0 rounded-xl"
+                  className="h-10 min-w-0 rounded-xl"
                 />
                 <span className="text-center text-subtle">to</span>
                 <Input
@@ -346,7 +480,7 @@ function DashboardPage() {
                   min={customFrom}
                   max={today}
                   onChange={(e) => setCustomTo(e.target.value)}
-                  className="h-9 min-w-0 rounded-xl"
+                  className="h-10 min-w-0 rounded-xl"
                 />
               </div>
             ) : null}
@@ -355,21 +489,15 @@ function DashboardPage() {
             ) : (
               <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                 <div className="rounded-xl border border-border/60 bg-background/40 p-3">
-
                   <p className="text-xs uppercase tracking-wide text-subtle">Total</p>
                   <p className="font-display text-xl font-semibold tabular-nums">
-                    {formatBytes(
-                      (usageQ.data?.bytesDown ?? 0) + (usageQ.data?.bytesUp ?? 0),
-                    )}
+                    {formatBytes((usageQ.data?.bytesDown ?? 0) + (usageQ.data?.bytesUp ?? 0))}
                   </p>
                 </div>
                 <div className="rounded-xl border border-border/60 bg-background/40 p-3">
-                  <p className="text-xs uppercase tracking-wide text-subtle">
-                    Down / Up
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-subtle">Down / Up</p>
                   <p className="text-sm tabular-nums text-muted">
-                    {formatBytes(usageQ.data?.bytesDown ?? 0)} /{" "}
-                    {formatBytes(usageQ.data?.bytesUp ?? 0)}
+                    {formatBytes(usageQ.data?.bytesDown ?? 0)} / {formatBytes(usageQ.data?.bytesUp ?? 0)}
                   </p>
                 </div>
               </div>
@@ -378,55 +506,54 @@ function DashboardPage() {
 
           <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
             <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold">
-              <Radio className="size-4 text-accent" />
-              ISP status
+              <Clock className="size-4 text-accent" />
+              Network log
             </h2>
-            <ul className="space-y-2">
-              {isps.map((isp) => (
-                <li
-                  key={isp.id}
-                  className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/40 px-3 py-2.5 text-sm"
-                >
-                  <span>{isp.name}</span>
-                  <Badge
-                    tone={
-                      isp.status === "ONLINE"
-                        ? "ok"
-                        : isp.status === "DEGRADED"
-                          ? "warn"
-                          : "danger"
-                    }
-                  >
-                    {isp.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-4 text-xs leading-relaxed text-subtle">
-              TelNet does not steer traffic. MikroTik owns WAN failover — packages
-              stay valid across every path.
-            </p>
-          </Card>
-          <Card className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm sm:p-5">
-            <h2 className="mb-4 font-display text-lg font-semibold">Network log</h2>
-            <ul className="space-y-2.5">
-              {events.map((e) => (
-                <li
-                  key={e.id}
-                  className="rounded-xl border border-border/60 bg-background/40 p-3"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-subtle sm:text-xs">
-                    {e.eventType.replaceAll("_", " ")}
-                  </p>
-                  <p className="mt-1 text-sm leading-relaxed text-muted">
-                    {e.description}
-                  </p>
-                </li>
-              ))}
-            </ul>
+            {events.length === 0 ? (
+              <p className="text-sm text-subtle">Nothing logged yet.</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {events.map((e) => (
+                  <li key={e.id} className="rounded-xl border border-border/60 bg-background/40 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-subtle sm:text-xs">
+                      {e.eventType.replaceAll("_", " ")} · {formatStamp(e.createdAt)}
+                    </p>
+                    <p className="mt-1 text-sm leading-relaxed text-muted">{e.description}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Compact supporting figure. */
+function Mini({
+  label,
+  value,
+  icon: Icon,
+  warn,
+}: {
+  label: string;
+  value: string;
+  icon: typeof Banknote;
+  warn?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-xl border border-border/70 bg-card/90 px-3 py-2.5",
+        warn && "border-warn/30",
+      )}
+    >
+      <p className="flex items-center gap-1.5 truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-subtle">
+        <Icon className={cn("size-3.5 shrink-0", warn ? "text-warn" : "text-accent")} />
+        {label}
+      </p>
+      <p className="mt-1 truncate text-sm font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
