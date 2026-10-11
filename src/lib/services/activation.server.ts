@@ -1,4 +1,4 @@
-import { getEffectiveCapacity } from "@/lib/services/capacity.server";
+import { countOnlineAtSite, getEffectiveCapacity } from "@/lib/services/capacity.server";
 import { getSql } from "@/lib/db";
 import { nid, asNumber } from "@/lib/utils";
 import {
@@ -38,7 +38,15 @@ function randomMac() {
 
 export async function activateFromPayment(
   paymentId: string,
-  device?: { token?: string | null; info?: string | null },
+  device?: {
+    token?: string | null;
+    info?: string | null;
+    /**
+     * The site the person is at RIGHT NOW (from the portal link). Decides Omada/Ruijie vs MikroTik for
+     * reconnects, "Already paid?", vouchers and points, whose payment/voucher may belong to another site.
+     */
+    siteId?: string | null;
+  },
   /**
    * promote: set only by the expiry job when it is this queued package's
    * turn. Every other caller (retry buttons, "Already paid?", reconnects)
@@ -241,13 +249,11 @@ export async function activateFromPayment(
   );
 
   // Limits follow the ISP path(s) currently connected (see capacity.server.ts).
-  const capacity = await getEffectiveCapacity();
-  const online = (
-    await sql<{ n: number }>`
-      select count(*)::int as n from sessions where status = 'ACTIVE'
-    `
-  )[0];
-  if (capacity.maxUsers > 0 && asNumber(online?.n) >= capacity.maxUsers) {
+  // ...of THIS site only: seats and speed caps come from the ISP paths in the site the person is at.
+  const capSite = String(device?.siteId ?? pay.site_id ?? "site_default");
+  const capacity = await getEffectiveCapacity(capSite);
+  const onlineHere = await countOnlineAtSite(capSite);
+  if (capacity.maxUsers > 0 && onlineHere >= capacity.maxUsers) {
     if (!packRow) {
       const id = nid("cp");
       await sql`
@@ -286,10 +292,15 @@ export async function activateFromPayment(
     const hwTarget = await resolveHardwareTarget({
       deviceToken: device?.token,
       customerId: String(pay.customer_id),
-      siteId: pay.site_id ? String(pay.site_id) : null,
+      siteId: device?.siteId ?? (pay.site_id ? String(pay.site_id) : null),
     });
     if (hwTarget) {
-      hwAuth = await authorizeOnHardware(hwTarget, { username, seconds: remaining });
+      // Bought while the site is closed (an allowed package type): the package is paid and
+      // running, but the device is only switched on once the site opens (portal "Reconnect").
+      const { isRouterClosedNow } = await import("./hours.server");
+      if (!(await isRouterClosedNow(hwTarget.router.id))) {
+        hwAuth = await authorizeOnHardware(hwTarget, { username, seconds: remaining });
+      }
     } else {
       await createAndActivateUser({
         username,
@@ -472,7 +483,7 @@ export async function activateFromPayment(
 
 export async function reconnectCustomer(
   customerId: string,
-  device?: { token?: string | null; info?: string | null },
+  device?: { token?: string | null; info?: string | null; siteId?: string | null },
 ) {
   await expireDuePackages();
   const sql = await getSql();
@@ -491,6 +502,16 @@ export async function reconnectCustomer(
   if (!row) return { ok: false as const, reason: "none" };
   if (String(row.customer_status) === "BLOCKED") {
     return { ok: false as const, reason: "blocked" };
+  }
+  // Omada/Ruijie site that is closed: nothing to switch on yet. Say so instead of failing the payment.
+  const hwTarget = await resolveHardwareTarget({
+    deviceToken: device?.token,
+    customerId,
+    siteId: device?.siteId ?? null,
+  });
+  if (hwTarget) {
+    const { isRouterClosedNow } = await import("./hours.server");
+    if (await isRouterClosedNow(hwTarget.router.id)) return { ok: false as const, reason: "closed" };
   }
   return activateFromPayment(String(row.payment_id), device);
 }

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
-import { deviceInfo } from "@/lib/device";
+import { deviceInfo, readSite } from "@/lib/device";
 import { APP_NAME } from "@/lib/brand-copy";
 import { recoverPackage } from "@/lib/fn/portal";
 
@@ -30,6 +30,7 @@ function RecoverPage() {
           token: device.token,
           phone: device.phone ?? undefined,
           deviceInfo: deviceInfo(),
+          site: readSite(),
         },
       });
     },

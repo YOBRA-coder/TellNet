@@ -2,7 +2,10 @@ import type { RouterProbe } from "@/lib/types";
 import type { HardwareType, HwConfig } from "@/lib/hardware";
 
 export class HardwareError extends Error {
-  constructor(message = "Network hardware is currently unavailable.") {
+  constructor(
+    message = "Network hardware is currently unavailable.",
+    public readonly code?: "closed",
+  ) {
     super(message);
     this.name = "HardwareError";
   }

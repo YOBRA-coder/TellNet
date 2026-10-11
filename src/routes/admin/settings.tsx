@@ -17,6 +17,7 @@ import {
   getSettingsAdmin,
   saveSettingsAdmin,
   sendMpesaTestPromptAdmin,
+  sendSmsTestAdmin,
 } from "@/lib/fn/admin";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -29,6 +30,7 @@ const TABS = [
   { id: "rewards", label: "Rewards", hint: "Loyalty points, referral bonus and student packages." },
   { id: "payments", label: "Payments", hint: "M-Pesa (Daraja) setup and test." },
   { id: "network", label: "Network", hint: "ISP capacity, routers and RADIUS." },
+  { id: "sms", label: "SMS & reset", hint: "TextBee SMS and how customers reset a forgotten PIN." },
   { id: "account", label: "Account", hint: "Operator console password." },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -77,6 +79,10 @@ function SettingsPage() {
     radiusAuthPort: 1812,
     radiusAcctPort: 1813,
     radiusServerHost: "",
+    smsEnabled: false,
+    smsApiKey: "",
+    smsDeviceId: "",
+    resetMethod: "RECEIPT" as "BOTH" | "OTP" | "RECEIPT",
   });
 
   useEffect(() => {
@@ -118,6 +124,9 @@ function SettingsPage() {
       radiusAuthPort: q.data.radiusAuthPort,
       radiusAcctPort: q.data.radiusAcctPort,
       radiusServerHost: q.data.radiusServerHost ?? "",
+      smsEnabled: q.data.smsEnabled,
+      smsDeviceId: q.data.smsDeviceId ?? "",
+      resetMethod: q.data.resetMethod,
     }));
   }, [q.data]);
 
@@ -126,7 +135,7 @@ function SettingsPage() {
     onSuccess: (res) => {
       toast.success("Settings saved");
       if (res.radius?.error) toast.error(res.radius.error, { duration: 10_000 });
-      setForm((f) => ({ ...f, radiusSecret: "" }));
+      setForm((f) => ({ ...f, radiusSecret: "", smsApiKey: "" }));
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["radius-status"] });
       qc.invalidateQueries({ queryKey: ["capacity"] });
@@ -152,6 +161,13 @@ function SettingsPage() {
   });
   const check = useMutation({ mutationFn: () => checkRadiusRouters() });
   const [testPhone, setTestPhone] = useState("");
+  const [smsTestPhone, setSmsTestPhone] = useState("");
+  const smsTest = useMutation({
+    mutationFn: () => sendSmsTestAdmin({ data: { phone: smsTestPhone } }),
+    onSuccess: (res) =>
+      res.ok ? toast.success("TextBee accepted the test SMS. Check the phone.") : toast.error(res.error, { duration: 10_000 }),
+    onError: () => toast.error("Could not send the test SMS."),
+  });
   const mpesaCheck = useMutation({
     mutationFn: () => checkMpesaSetupAdmin(),
     onError: () => toast.error("Could not run the M-Pesa check."),
@@ -290,7 +306,7 @@ function SettingsPage() {
         </p>
         <p className="-mt-2 text-xs text-subtle">
           {form.capacityMode === "PER_ISP"
-            ? "Only used when no ISP path has been added."
+            ? "Used by any site that has no ISP path of its own. Sites with ISP paths use those instead, per site."
             : "Applied to every customer whichever ISP is connected."}
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -798,6 +814,74 @@ function SettingsPage() {
             })}
           </ul>
         ) : null}
+      </Card>
+
+      <Card className={`space-y-4 p-5 ${show("sms")}`}>
+        <h2 className="font-display text-lg font-semibold">Forgotten PIN / password</h2>
+        <p className="text-sm text-muted">
+          Choose how customers can reset it themselves. Sending an SMS code needs TextBee below; until it is set up
+          and switched on, customers only see the M-Pesa receipt option.
+        </p>
+        <Field label="Reset method">
+          <select
+            className="h-10 w-full rounded-md border border-border bg-raised px-3 text-sm"
+            value={form.resetMethod}
+            onChange={(e) => setForm({ ...form, resetMethod: e.target.value as "BOTH" | "OTP" | "RECEIPT" })}
+          >
+            <option value="BOTH">All — SMS code or M-Pesa receipt (customer picks)</option>
+            <option value="OTP">SMS code only</option>
+            <option value="RECEIPT">M-Pesa receipt only</option>
+          </select>
+        </Field>
+        <div className="border-t border-border pt-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">TextBee SMS</p>
+              <p className="text-xs text-muted">
+                Uses an Android phone running the TextBee app as the SMS sender (textbee.dev). Get the API key and
+                Device ID from the TextBee dashboard.
+              </p>
+            </div>
+            <Switch checked={form.smsEnabled} onCheckedChange={(v) => setForm({ ...form, smsEnabled: v })} />
+          </div>
+          <div className="mt-3 space-y-3">
+            <Field label={`API key${q.data?.hasSmsKey ? " (saved — type to replace)" : ""}`}>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={form.smsApiKey}
+                onChange={(e) => setForm({ ...form, smsApiKey: e.target.value })}
+                placeholder={q.data?.hasSmsKey ? "•••••••• (unchanged)" : "Paste your TextBee API key"}
+              />
+            </Field>
+            <Field label="Device ID">
+              <Input
+                value={form.smsDeviceId}
+                onChange={(e) => setForm({ ...form, smsDeviceId: e.target.value })}
+                placeholder="From the TextBee dashboard → Devices"
+              />
+            </Field>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[180px] flex-1">
+                <Field label="Send a test SMS to">
+                  <Input
+                    inputMode="tel"
+                    value={smsTestPhone}
+                    onChange={(e) => setSmsTestPhone(e.target.value)}
+                    placeholder="07XXXXXXXX"
+                  />
+                </Field>
+              </div>
+              <Button type="button" variant="secondary" disabled={smsTest.isPending || !smsTestPhone} onClick={() => smsTest.mutate()}>
+                {smsTest.isPending ? "Sending…" : "Send test"}
+              </Button>
+            </div>
+            <p className="text-xs text-subtle">
+              Save first, then test. "Accepted" means TextBee took the message; delivery depends on the phone's
+              SIM, airtime and signal. Each reset code costs one SMS from your TextBee plan.
+            </p>
+          </div>
+        </div>
       </Card>
 
       <Card className={`space-y-4 p-5 ${show("account")}`}>

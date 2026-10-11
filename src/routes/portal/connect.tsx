@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDevice } from "@/hooks/use-device";
 import { useHardwareHandoff } from "@/hooks/use-hardware-handoff";
-import { deviceInfo } from "@/lib/device";
+import { deviceInfo, readSite } from "@/lib/device";
 import { formatRemaining, formatStamp } from "@/lib/format";
 import { APP_NAME } from "@/lib/brand-copy";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
@@ -41,6 +41,7 @@ function ConnectPage() {
           phone: device.phone ?? undefined,
           customerId: device.customerId ?? undefined,
           deviceInfo: deviceInfo(),
+          site: readSite(),
         },
       });
     },

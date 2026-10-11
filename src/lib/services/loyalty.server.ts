@@ -303,6 +303,8 @@ export async function redeemPointsForPackage(input: {
   customerId: string;
   packageId: string;
   deviceToken?: string;
+  /** Site the person is at now (portal link); decides which hardware switches them on. */
+  visitSiteId?: string | null;
 }): Promise<RedeemPointsResult> {
   const sql = await getSql();
   const { activateFromPayment } = await import("@/lib/services/activation.server");
@@ -369,7 +371,8 @@ export async function redeemPointsForPackage(input: {
 
   const act = await activateFromPayment(paymentId, {
     token: input.deviceToken ?? undefined,
-  } as { token?: string });
+    siteId: input.visitSiteId ?? null,
+  });
 
   return {
     ok: true,

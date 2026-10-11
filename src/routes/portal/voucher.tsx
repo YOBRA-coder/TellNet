@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
 import { APP_NAME } from "@/lib/brand-copy";
 import { isKenyanPhone, formatPhoneDisplay } from "@/lib/phone";
+import { readSite } from "@/lib/device";
 import { redeemVoucherPortal } from "@/lib/fn/portal";
 
 export const Route = createFileRoute("/portal/voucher")({
@@ -29,7 +30,7 @@ function VoucherRedeem() {
         throw new Error("Enter a valid Kenyan phone number.");
       }
       return redeemVoucherPortal({
-        data: { code: code.trim(), phone, deviceToken: device.token },
+        data: { code: code.trim(), phone, deviceToken: device.token, site: readSite() },
       });
     },
     onSuccess: (res) => {

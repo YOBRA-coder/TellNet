@@ -205,8 +205,15 @@ export async function probeAllRouters(): Promise<number> {
   );
   // Which access point each connected customer is behind (for revenue per AP).
   try {
-    const { sampleApUsage } = await import("./network-live.server");
+    const { sampleApUsage, refreshNetworkLive } = await import("./network-live.server");
+    // Reads each MikroTik's ports (snapshots under 45 s old are reused): keeps ISP status and AP
+    // health current without anyone having the Network map open.
+    await refreshNetworkLive({ maxAgeMs: 45_000 });
     await sampleApUsage();
+    // Omada sites: same sampling, keyed by the AP MAC the controller reports.
+    const hw = await import("./hardware/ap.server");
+    await hw.sampleHwApUsage();
+    await hw.refreshHwAccessPoints();
   } catch (err) {
     console.error("[ap-usage]", err);
   }

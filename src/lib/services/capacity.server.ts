@@ -23,7 +23,12 @@ export type EffectiveCapacity = {
   paths: { id: string; name: string; type: string; status: string; totalKbps: number; perUserMaxKbps: number; maxUsers: number; counted: boolean }[];
 };
 
-export async function getEffectiveCapacity(): Promise<EffectiveCapacity> {
+/**
+ * siteId given: only the ISP paths of that site count (a line in town A must not add seats
+ * to town B); a site with no ISP path uses the fallback limits from Settings.
+ * No siteId: every path (the Settings overview).
+ */
+export async function getEffectiveCapacity(siteId?: string | null): Promise<EffectiveCapacity> {
   const sql = await getSql();
   const s = (
     await sql<{ capacity_mode: string | null; isp_total_kbps: number; per_user_max_kbps: number; max_users: number }>`
@@ -39,7 +44,9 @@ export async function getEffectiveCapacity(): Promise<EffectiveCapacity> {
   };
   const isps = await sql<{ id: string; name: string; type: string; status: string; total_kbps: number; per_user_max_kbps: number; max_users: number }>`
     select id, name, type, status, total_kbps, per_user_max_kbps, max_users
-    from isps order by sort_order
+    from isps
+    where (${siteId ?? null}::text is null or coalesce(site_id, 'site_default') = ${siteId ?? null})
+    order by sort_order
   `;
   const up = isps.filter((i) => i.status !== "OFFLINE");
   const counted = up.length > 0 ? up : isps;
@@ -65,4 +72,31 @@ export async function getEffectiveCapacity(): Promise<EffectiveCapacity> {
     maxUsers: counted.reduce((n, i) => n + Number(i.max_users), 0),
     paths,
   };
+}
+
+/**
+ * Is there any internet to sell for this site? Only the site's own ISP paths count, and a site
+ * with no ISP path at all is not judged (nothing says it is down).
+ */
+export async function isInternetUp(siteId: string): Promise<boolean> {
+  const sql = await getSql();
+  const rows = await sql<{ status: string }>`
+    select status from isps where coalesce(site_id, 'site_default') = ${siteId}
+  `;
+  return rows.length === 0 || rows.some((r) => r.status !== "OFFLINE");
+}
+
+/** Customers online now at one site (where they paid / signed up), for the seat limit. */
+export async function countOnlineAtSite(siteId: string): Promise<number> {
+  const sql = await getSql();
+  const r = await sql<{ n: number }>`
+    select count(*)::int as n
+    from sessions s
+    join customers c on c.id = s.customer_id
+    left join customer_packages cp on cp.id = s.customer_package_id
+    left join payments pay on pay.id = cp.payment_id
+    where s.status = 'ACTIVE'
+      and coalesce(pay.site_id, c.site_id, 'site_default') = ${siteId}
+  `;
+  return Number(r[0]?.n ?? 0);
 }

@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { useDevice } from "@/hooks/use-device";
+import { readSite } from "@/lib/device";
 import { APP_NAME } from "@/lib/brand-copy";
 import { changePin, dismissNotices, getRewards, redeemPoints, signOut } from "@/lib/fn/portal";
 import { formatStamp } from "@/lib/format";
@@ -20,6 +21,7 @@ const REASON: Record<string, string> = {
 
 function RewardsPage() {
   const { device, ready, update } = useDevice();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["rewards", device?.token],
@@ -39,11 +41,13 @@ function RewardsPage() {
 
   const redeem = useMutation({
     mutationFn: (packageId: string) =>
-      redeemPoints({ data: { packageId, token: device!.token } }),
+      redeemPoints({ data: { packageId, token: device!.token, site: readSite() } }),
     onSuccess: (res) => {
       if (!res.ok) return void toast.error(res.error);
       toast.success(res.queued ? "Redeemed! It will start when your current package ends." : "Redeemed! Connecting you now.");
       qc.invalidateQueries();
+      // Ruijie finishes login on the connect page (gateway hand-off), so go there like vouchers do.
+      if (res.activationOk && !res.queued) setTimeout(() => navigate({ to: "/portal/connect" }), 900);
     },
     onError: () => toast.error("Could not redeem points."),
   });

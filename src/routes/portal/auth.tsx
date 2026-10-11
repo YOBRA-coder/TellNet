@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDevice } from "@/hooks/use-device";
-import { resetPasswordWithReceipt, signIn, signUp } from "@/lib/fn/portal";
+import {
+  getResetOptionsFn,
+  requestResetOtpFn,
+  resetPasswordWithOtp,
+  resetPasswordWithReceipt,
+  signIn,
+  signUp,
+} from "@/lib/fn/portal";
 import { APP_NAME } from "@/lib/brand-copy";
 import { isKenyanPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
@@ -63,6 +70,31 @@ function AuthPage() {
   // "Forgot PIN" — M-Pesa code from a payment made with this number
   const [receipt, setReceipt] = useState("");
 
+  // Forgot PIN by SMS code (only when the operator turned it on)
+  const resetOpts = useQuery({ queryKey: ["reset-options"], queryFn: () => getResetOptionsFn() });
+  const canOtp = Boolean(resetOpts.data?.otp);
+  const canReceipt = resetOpts.data ? resetOpts.data.receipt : true;
+  const [via, setVia] = useState<"otp" | "receipt" | null>(null);
+  const resetVia: "otp" | "receipt" = via ?? (canOtp ? "otp" : "receipt");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpNote, setOtpNote] = useState<string | null>(null);
+  const sendOtp = useMutation({
+    mutationFn: async () => {
+      if (!isKenyanPhone(phone)) throw new Error("Enter a valid Kenyan phone number.");
+      return requestResetOtpFn({ data: { phone } });
+    },
+    onSuccess: (res) => {
+      if (res.ok) {
+        setError(null);
+        setOtpNote(`If ${res.maskedPhone ?? "that number"} has an account, a 6-digit code is on its way.`);
+      } else {
+        setOtpNote(null);
+        setError(res.error ?? "Could not send the code.");
+      }
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Could not send the code."),
+  });
+
   const [error, setError] = useState<string | null>(
     null,
   );
@@ -92,7 +124,9 @@ function AuthPage() {
       }
 
       if (mode === "reset") {
-        if (!receipt.trim()) {
+        if (resetVia === "otp") {
+          if (!otpCode.trim()) throw new Error("Enter the code we sent by SMS.");
+        } else if (!receipt.trim()) {
           throw new Error(
             "Enter the M-Pesa transaction code from one of your payments.",
           );
@@ -108,6 +142,12 @@ function AuthPage() {
           throw new Error(
             "The two PINs/passwords don't match.",
           );
+        }
+
+        if (resetVia === "otp") {
+          return resetPasswordWithOtp({
+            data: { phone, code: otpCode.trim(), next: secret, token: device.token },
+          });
         }
 
         return resetPasswordWithReceipt({
@@ -321,7 +361,45 @@ function AuthPage() {
         </div>
 
         {/* Forgot PIN: prove the number is yours */}
-        {mode === "reset" ? (
+        {mode === "reset" && resetVia === "otp" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="auth-otp">SMS code</Label>
+            <div className="flex gap-2">
+              <Input
+                id="auth-otp"
+                name="otp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="6-digit code"
+                maxLength={6}
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                className="h-12 text-base"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-12 shrink-0"
+                disabled={sendOtp.isPending}
+                onClick={() => sendOtp.mutate()}
+              >
+                {sendOtp.isPending ? "Sending…" : otpNote ? "Resend" : "Send code"}
+              </Button>
+            </div>
+            <p className="text-xs text-subtle">{otpNote ?? "We'll text a code to the number above."}</p>
+            {canReceipt ? (
+              <button
+                type="button"
+                onClick={() => { setVia("receipt"); setError(null); }}
+                className="text-xs font-medium text-accent hover:underline"
+              >
+                Use an M-Pesa code instead
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {mode === "reset" && resetVia === "receipt" ? (
           <div className="space-y-1.5">
             <Label htmlFor="auth-receipt">
               M-Pesa transaction code
@@ -347,6 +425,15 @@ function AuthPage() {
               Find it in the M-Pesa message for any
               payment you made here with this number.
             </p>
+            {canOtp ? (
+              <button
+                type="button"
+                onClick={() => { setVia("otp"); setError(null); }}
+                className="text-xs font-medium text-accent hover:underline"
+              >
+                Get an SMS code instead
+              </button>
+            ) : null}
           </div>
         ) : null}
 

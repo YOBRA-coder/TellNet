@@ -9,6 +9,7 @@ import {
   Database,
   Radio,
   Router as RouterIcon,
+  Ticket,
   UserPlus,
   Users,
   Wifi,
@@ -139,7 +140,9 @@ function DashboardPage() {
   const routerOk = mikrotiks.length > 0 ? routersOnline.length > 0 : router.reachable;
   const ispsDown = isps.filter((i) => i.status !== "ONLINE");
   const ispOk = isps.length === 0 || isps.some((i) => i.status === "ONLINE");
-  const internet = routerOk && ispOk ? "Online" : "Degraded";
+  const noRouters = mikrotiks.length === 0 && !router.reachable;
+  const internet = noRouters ? "No router yet" : routerOk && ispOk ? "Online" : "Degraded";
+  const allClear = !noRouters && routersDown.length === 0 && ispOk;
 
   // The few things that need the operator's attention right now, most urgent first.
   const attention: { tone: "danger" | "warn" | "info"; text: string; to: string }[] = [];
@@ -215,7 +218,17 @@ function DashboardPage() {
       </div>
 
       {/* 1. What needs me right now */}
-      {attention.length === 0 ? (
+      {attention.length === 0 && noRouters ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/90 px-4 py-3 text-sm text-muted">
+          <AlertTriangle className="size-5 shrink-0 text-warn" />
+          No router is connected yet — add one on the Network page.
+        </div>
+      ) : attention.length === 0 && !allClear ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-warn/25 bg-warn/10 px-4 py-3 text-sm text-warn">
+          <AlertTriangle className="size-5 shrink-0" />
+          No payment problems, but the network is not fully online.
+        </div>
+      ) : attention.length === 0 ? (
         <div className="flex items-center gap-3 rounded-2xl border border-ok/25 bg-ok/10 px-4 py-3 text-sm text-ok">
           <CheckCircle2 className="size-5 shrink-0" />
           All clear — payments are activating, routers are online.
@@ -249,17 +262,18 @@ function DashboardPage() {
       )}
 
       {/* 2. The four numbers that matter */}
-      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-5">
         <Stat
-          label="Today's revenue"
+          label="M-Pesa revenue today"
           value={formatKes(cards.todayRevenue, cur)}
           icon={Banknote}
-          note={
-            `Yesterday ${formatKes(cards.yesterdayRevenue, cur)}. Successful M-Pesa payments only.` +
-            (cards.todayVouchers > 0
-              ? ` ${cards.todayVouchers} voucher${cards.todayVouchers === 1 ? "" : "s"} (${formatKes(cards.todayVoucherValue, cur)}) not included.`
-              : "")
-          }
+          note={`Yesterday ${formatKes(cards.yesterdayRevenue, cur)}. Successful M-Pesa payments only.`}
+        />
+        <Stat
+          label="Voucher revenue today"
+          value={formatKes(cards.todayVoucherValue, cur)}
+          icon={Ticket}
+          note={`Yesterday ${formatKes(cards.voucherYesterday, cur)}. ${cards.todayVouchers} voucher${cards.todayVouchers === 1 ? "" : "s"} redeemed today, face value, kept apart from M-Pesa.`}
         />
         <Stat label="Online now" value={String(cards.onlineUsers)} icon={Wifi} note="Devices connected right now." />
         <Stat
@@ -278,9 +292,11 @@ function DashboardPage() {
       </div>
 
       {/* 3. Supporting numbers, smaller */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Mini label="This week" value={formatKes(cards.weekRevenue, cur)} icon={Banknote} />
-        <Mini label="This month" value={formatKes(cards.monthRevenue, cur)} icon={Banknote} />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Mini label="M-Pesa this week" value={formatKes(cards.weekRevenue, cur)} icon={Banknote} />
+        <Mini label="Vouchers this week" value={formatKes(cards.voucherWeek, cur)} icon={Ticket} />
+        <Mini label="M-Pesa this month" value={formatKes(cards.monthRevenue, cur)} icon={Banknote} />
+        <Mini label="Vouchers this month" value={formatKes(cards.voucherMonth, cur)} icon={Ticket} />
         <Mini
           label="Payments today"
           value={`${cards.todaySuccess} ok · ${cards.todayFailed} failed`}
@@ -289,7 +305,7 @@ function DashboardPage() {
         />
         <Mini label="New customers today" value={String(cards.newCustomersToday)} icon={UserPlus} />
         <Mini label="Total customers" value={String(cards.totalCustomers)} icon={Users} />
-        <Mini label="Expired packages" value={String(cards.expiredPackages)} icon={WifiOff} />
+        <Mini label="Expired packages" value={`${cards.expiredPackages} total · ${cards.expiredToday} today`} icon={WifiOff} />
       </div>
 
       {/* 4. One tap to the pages used most */}

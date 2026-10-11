@@ -88,6 +88,15 @@ export async function handleWifidog(request: Request, routerId: string, sub: str
     }
     // login + counters: allowed only while the package is running.
     if (!token) return text("Auth: 0\nMessages: missing token");
+    // Closed hours: the gateway asks again every minute or so, so this ends the session.
+    const { isRouterClosedNow } = await import("../hours.server");
+    if (await isRouterClosedNow(routerId)) {
+      await sql`
+        update hw_authorizations set status = 'ENDED', ended_at = now()
+        where token = ${token} and router_id = ${routerId} and status = 'ACTIVE'
+      `;
+      return text("Auth: 0\nMessages: closed");
+    }
     const rows = await sql<{ id: string; mac_norm: string; cp_status: string | null; cust_status: string | null }>`
       select a.id, a.mac_norm, cp.status as cp_status, c.status as cust_status
       from hw_authorizations a

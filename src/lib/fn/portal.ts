@@ -16,6 +16,9 @@ import {
   announceReferral,
   changeCustomerSecret,
   resetCustomerSecretWithReceipt,
+  resetCustomerSecretWithOtp,
+  requestResetOtp,
+  getResetOptions,
   getSessionCustomer,
   signInCustomer,
   signOutDevice,
@@ -32,6 +35,7 @@ import {
 } from "@/lib/services/rows.server";
 import type { ActiveAccess, Package } from "@/lib/types";
 import { PACKAGE_IN_USE_MESSAGE } from "@/lib/device";
+import { isInternetUp } from "@/lib/services/capacity.server";
 import { bindClientContext, takeHandoffUrl } from "@/lib/services/hardware";
 
 const identitySchema = z.object({
@@ -39,6 +43,14 @@ const identitySchema = z.object({
   phone: z.string().optional(),
   customerId: z.string().optional(),
 });
+
+/** Site id for the ?site=<slug> of the portal link (null = unknown / not given). */
+async function siteIdFromSlug(slug?: string | null): Promise<string | null> {
+  if (!slug) return null;
+  const sql = await getSql();
+  const r = await sql<{ id: string }>`select id from sites where slug = ${slug} and status = 'ACTIVE' limit 1`;
+  return r[0]?.id ?? null;
+}
 
 /**
  * Packages a portal visitor may see. A package with no site is sold
@@ -70,8 +82,7 @@ async function loadCatalog(siteSlug?: string | null) {
       order by price asc, sort_order asc, duration_minutes asc
     `
   ).map(mapPackage);
-  const isps = (await sql<SqlRow>`select * from isps order by sort_order`).map(mapIsp);
-  const internetUp = isps.some((i) => i.status !== "OFFLINE");
+  const internetUp = await isInternetUp(siteId);
   return {
     settings: {
       hotspotName: settings.hotspotName,
@@ -271,6 +282,13 @@ function activationFailure(
       ok: false as const,
       code: "expired" as const,
       error: "Your package has expired. Please purchase a new package.",
+    };
+  }
+  if (activation.reason === "closed") {
+    return {
+      ok: false as const,
+      code: "closed" as const,
+      error: "We're closed right now. Your package is safe — tap Reconnect when we open.",
     };
   }
   if (activation.reason === "blocked") {
@@ -532,6 +550,7 @@ export const recoverPackage = createServerFn({ method: "POST" })
         token: z.string().min(8),
         phone: z.string().optional(),
         deviceInfo: z.string().optional(),
+        site: z.string().max(40).optional(),
       })
       .parse(data),
   )
@@ -602,6 +621,7 @@ export const recoverPackage = createServerFn({ method: "POST" })
     const activation = await activateFromPayment(String(row.id), {
       token: data.token,
       info: data.deviceInfo,
+      siteId: await siteIdFromSlug(data.site),
     });
     if (!activation.ok) {
       return activationFailure(activation, mapPayment(row));
@@ -629,6 +649,7 @@ export const connectActive = createServerFn({ method: "POST" })
         phone: z.string().optional(),
         customerId: z.string().optional(),
         deviceInfo: z.string().optional(),
+        site: z.string().max(40).optional(),
       })
       .parse(data),
   )
@@ -636,8 +657,8 @@ export const connectActive = createServerFn({ method: "POST" })
     await expireDuePackages();
     const sql = await getSql();
     const settings = await getSettings();
-    const isps = (await sql<SqlRow>`select * from isps`).map(mapIsp);
-    const internetUp = isps.some((i) => i.status !== "OFFLINE");
+    const visitSiteId = await siteIdFromSlug(data.site);
+    const internetUp = await isInternetUp(visitSiteId ?? "site_default");
     if (!internetUp) {
       return {
         ok: false as const,
@@ -669,6 +690,7 @@ export const connectActive = createServerFn({ method: "POST" })
     const result = await reconnectCustomer(customerId, {
       token: data.token,
       info: data.deviceInfo,
+      siteId: visitSiteId,
     });
     if (!result.ok) {
       if (result.reason === "in_use") {
@@ -938,6 +960,25 @@ export const resetPasswordWithReceipt = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => resetCustomerSecretWithReceipt(data));
 
+export const getResetOptionsFn = createServerFn({ method: "GET" }).handler(async () => getResetOptions());
+
+export const requestResetOtpFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ phone: z.string().min(9).max(20) }).parse(data))
+  .handler(async ({ data }) => requestResetOtp(data));
+
+export const resetPasswordWithOtp = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z
+      .object({
+        phone: z.string().min(9).max(20),
+        code: z.string().min(4).max(10),
+        next: z.string().min(4).max(64),
+        token: z.string().min(8).max(80),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => resetCustomerSecretWithOtp(data));
+
 export const changePin = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
     z
@@ -1058,6 +1099,7 @@ export const redeemVoucherPortal = createServerFn({ method: "POST" })
         code: z.string().min(4).max(32),
         phone: z.string().min(9).max(15),
         deviceToken: z.string().optional(),
+        site: z.string().max(40).optional(),
       })
       .parse(data),
   )
@@ -1067,6 +1109,7 @@ export const redeemVoucherPortal = createServerFn({ method: "POST" })
         code: data.code,
         phone: data.phone,
         deviceToken: data.deviceToken,
+        visitSiteId: await siteIdFromSlug(data.site),
       });
       return { ok: true as const, ...res };
     } catch (e) {
@@ -1083,6 +1126,7 @@ export const redeemPoints = createServerFn({ method: "POST" })
       .object({
         packageId: z.string(),
         token: z.string().min(8).max(80),
+        site: z.string().max(40).optional(),
       })
       .parse(data),
   )
@@ -1100,6 +1144,7 @@ export const redeemPoints = createServerFn({ method: "POST" })
       customerId: member.id,
       packageId: data.packageId,
       deviceToken: data.token,
+      visitSiteId: await siteIdFromSlug(data.site),
     });
   });
 

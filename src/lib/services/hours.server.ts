@@ -21,6 +21,7 @@ import {
   type RouterCreds,
 } from "@/lib/services/mikrotik.server";
 import { logEvent } from "@/lib/services/settings.server";
+import { disconnectUser as hwDisconnectUser } from "@/lib/services/hardware";
 
 export const TZ = (typeof process !== "undefined" && process.env.APP_TIMEZONE) || "Africa/Nairobi";
 export type Windows = Record<string, [string, string][]>;
@@ -234,9 +235,10 @@ export async function applyOperatingHours(now = new Date()): Promise<number> {
     if (fresh && !fresh.hours_applied) {
       const creds = await getRouterCredentialsById(r.id);
       if (!creds) {
-        // Opening hours are only enforced on MikroTik (they switch hotspot users
-        // on/off). Other hardware has nothing to apply — don't retry forever.
-        await sql`update mikrotiks set hours_applied = true where id = ${r.id} and hardware_type <> 'mikrotik'`;
+        // Omada / Ruijie: no RouterOS to switch. TelNet enforces closed hours itself —
+        // it ends every device it switched on, and refuses new logins while closed.
+        const done = await applyHwHours(r.id, fresh.hours_state === "CLOSED");
+        if (done) await sql`update mikrotiks set hours_applied = true where id = ${r.id}`;
         continue;
       }
       try {
@@ -248,4 +250,29 @@ export async function applyOperatingHours(now = new Date()): Promise<number> {
     }
   }
   return changed;
+}
+
+/**
+ * Omada / Ruijie sites: when a site closes, end every device TelNet switched on there.
+ * Returns true once nothing is left running (so the engine stops retrying).
+ * Opening needs no work: customers simply log back in (the portal "Reconnect" button).
+ */
+async function applyHwHours(routerId: string, closed: boolean): Promise<boolean> {
+  const sql = await getSql();
+  const kind = (await sql<{ hardware_type: string }>`select hardware_type from mikrotiks where id = ${routerId} limit 1`)[0];
+  if (!kind || kind.hardware_type === "mikrotik") return true; // router row has no credentials; nothing to do
+  if (!closed) return true;
+  const users = await sql<{ username: string }>`
+    select distinct username from hw_authorizations where router_id = ${routerId} and status = 'ACTIVE'
+  `;
+  let ok = true;
+  for (const u of users) {
+    try {
+      await hwDisconnectUser(u.username);
+    } catch (err) {
+      ok = false; // stays ACTIVE; the next minute's tick retries
+      console.error("[hours] could not end a device on a closed site yet:", err instanceof Error ? err.message : err);
+    }
+  }
+  return ok;
 }

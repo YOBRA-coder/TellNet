@@ -55,6 +55,8 @@ export async function redeemVoucher(input: {
   code: string;
   phone: string;
   deviceToken?: string | null;
+  /** Site the person is at now (portal link); decides which hardware switches them on. */
+  visitSiteId?: string | null;
 }) {
   const sql = await getSql();
   const code = input.code.trim().toUpperCase();
@@ -152,7 +154,8 @@ export async function redeemVoucher(input: {
 
   const act = await activateFromPayment(paymentId, {
     token: input.deviceToken ?? undefined,
-  } as { token?: string });
+    siteId: input.visitSiteId ?? null,
+  });
 
   return {
     paymentId,

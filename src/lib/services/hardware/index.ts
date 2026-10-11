@@ -136,6 +136,11 @@ export async function authorizeOnHardware(
 ): Promise<{ clientMac: string; clientIp: string | null; token?: string; handoffUrl?: string }> {
   const driver = getDriver(target.router.type);
   if (!driver) throw new HardwareError("Unsupported hardware type.");
+  // Closed hours: never switch a device on (the engine ends the ones already on).
+  const { isRouterClosedNow } = await import("../hours.server");
+  if (await isRouterClosedNow(target.router.id)) {
+    throw new HardwareError("We're closed right now. Please reconnect when we open.", "closed");
+  }
   const seconds = Math.max(60, Math.floor(a.seconds));
   const res = await driver.authorize({
     router: target.router,

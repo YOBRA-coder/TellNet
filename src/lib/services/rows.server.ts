@@ -120,6 +120,10 @@ export function mapSettings(row: SqlRow): Settings {
     radiusAuthPort: asNumber(row.radius_auth_port, 1812),
     radiusAcctPort: asNumber(row.radius_acct_port, 1813),
     radiusServerHost: row.radius_server_host ? String(row.radius_server_host) : null,
+    smsEnabled: asBool(row.sms_enabled),
+    hasSmsKey: Boolean(row.sms_api_key),
+    smsDeviceId: row.sms_device_id ? String(row.sms_device_id) : null,
+    resetMethod: row.reset_method === "BOTH" || row.reset_method === "OTP" ? row.reset_method : "RECEIPT",
   };
 }
 
@@ -255,6 +259,8 @@ export function mapIsp(row: SqlRow): Isp {
     perUserMaxKbps: asNumber(row.per_user_max_kbps, 5120),
     maxUsers: asNumber(row.max_users, 25),
     siteId: row.site_id ? String(row.site_id) : null,
+    autoStatus: row.auto_status == null ? true : asBool(row.auto_status),
+    statusCheckedAt: row.status_checked_at ? iso(row.status_checked_at) : null,
   };
 }
 
@@ -282,6 +288,8 @@ export function mapMikroTik(row: SqlRow): MikroTik {
     id: String(row.id),
     hardwareType: asHardwareType(row.hardware_type),
     hwConfig: parseHwConfig(row.hw_config),
+    hwSeenAt: row.hw_seen_at ? iso(row.hw_seen_at) : null,
+    hwActiveDevices: 0,
     name: String(row.name),
     host: String(row.host),
     apiUser: String(row.api_user),

@@ -13,6 +13,7 @@ import {
   rosPing,
   type RouterCreds,
 } from "@/lib/services/mikrotik.server";
+import { logEvent } from "@/lib/services/settings.server";
 import type { HealthState, LiveNeighbor, LivePort, LiveRadio, LiveSnapshot } from "@/lib/types";
 
 const num = (v: unknown) => {
@@ -174,6 +175,34 @@ export async function checkAccessPoint(
 }
 
 /**
+ * ISP paths that name a router AND an interface follow that port: link up = ONLINE, link down =
+ * OFFLINE (a manually set DEGRADED stays while the link is up). This detects an unplugged cable,
+ * a dead modem or a power cut on the line — it cannot tell a line that is "up" but has no data.
+ * An unreachable router leaves its paths untouched: we cannot see the port, so we do not guess.
+ */
+export async function syncIspStatuses(routerId: string, live: LiveSnapshot): Promise<void> {
+  if (live.error) return;
+  const sql = await getSql();
+  const isps = await sql<{ id: string; name: string; status: string; interface_name: string }>`
+    select id, name, status, interface_name from isps
+    where mikrotik_id = ${routerId} and auto_status and interface_name is not null and interface_name <> ''
+  `;
+  for (const isp of isps) {
+    const port = live.ports.find((p) => p.name === isp.interface_name.trim());
+    if (!port) continue; // interface name not on this router: nothing to judge
+    const up = port.running && !port.disabled;
+    const next = up ? (isp.status === "DEGRADED" ? "DEGRADED" : "ONLINE") : "OFFLINE";
+    await sql`update isps set status_checked_at = now() where id = ${isp.id}`;
+    if (next === isp.status) continue;
+    await sql`update isps set status = ${next}, updated_at = now() where id = ${isp.id}`;
+    await logEvent(
+      next === "OFFLINE" ? "ISP_DOWN" : "ISP_RECOVER",
+      `${isp.name} is now ${next} (router port ${isp.interface_name} is ${up ? "up" : "down"}). Active packages are unchanged.`,
+    ).catch(() => {});
+  }
+}
+
+/**
  * Refresh every router (or one): collect the snapshot, judge its APs and
  * store the result. Snapshots younger than `maxAgeMs` are reused so several
  * admins with auto-refresh on don't hammer the routers.
@@ -220,6 +249,7 @@ export async function refreshNetworkLive(opts: { routerId?: string; maxAgeMs?: n
       update mikrotiks set live_json = ${JSON.stringify(r.live)}, live_at = now()
       where id = ${r.id}
     `;
+    await syncIspStatuses(r.id, r.live).catch((e) => console.error("[isp-sync]", e));
     if (!r.creds) continue;
     const aps = await sql<{ id: string; ip_address: string | null; mac_address: string | null; port: string | null }>`
       select id, ip_address, mac_address, port from access_points where mikrotik_id = ${r.id}

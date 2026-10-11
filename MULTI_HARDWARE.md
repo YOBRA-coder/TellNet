@@ -36,9 +36,7 @@ Existing routers are migrated (`0032_multi_hardware.sql`) as `mikrotik` and run 
 These were tested against mock controller/gateway servers, not real devices.
 
 ## Not available on Omada/Ruijie
-Opening hours switch-off, student domain blocking, per-package speed, live router stats (MikroTik-only features).
-<<<<<<< HEAD
-=======
+Student domain blocking, per-package speed, live router stats (MikroTik-only features). Opening hours DO work (see below).
 
 ## Network and Network map pages (updated)
 - **Network page**: every site shows a hardware badge. Omada/Ruijie cards show portal mode, devices online and last contact, with a
@@ -58,4 +56,27 @@ Opening hours switch-off, student domain blocking, per-package speed, live route
 - "Primary" is a MikroTik-only flag and global (the MikroTik that creates hotspot logins). Omada/Ruijie sites never need it and never change it.
   A town can use Omada only, Ruijie only or MikroTik only; no per-site "default hardware" setting is needed.
 - Reports -> "Revenue by hardware"; Live users and Transactions show site + hardware and filter by site.
->>>>>>> 01303452 (fix: fix hardware activation and row service issues)
+
+## Portal: which hardware connects a customer, and ISP limits per site
+- Reconnect ("Connect"), "Already paid?", vouchers and loyalty points now send the site from the portal link (?site=) so the customer
+  is switched on by the hardware of the site they are AT NOW, not the site the voucher/payment belongs to (a main-site voucher redeemed
+  on an Omada site used to be provisioned on the MikroTik). Points redemption now goes to the Connect page so a Ruijie login finishes.
+- ISP paths limit their own site only: seats, per-user speed and the "no internet" purchase block use that site's ISP paths; a site with no ISP
+  path uses Settings -> Fallback limits and is never judged "down". (Before, zero ISP paths wrongly blocked reconnects.)
+- ISP status can follow the router port (migration 0033): needs a MikroTik + interface; checked every minute by the background tick.
+  Link up = ONLINE, down = OFFLINE, DEGRADED stays manual; an unreachable router is never guessed. RADIUS still uses the highest per-user cap overall.
+
+## Opening hours for Omada / Ruijie
+- Same editor and weekly windows as MikroTik (Network -> site -> Opening hours). TelNet itself enforces closing: every device it switched on is
+  ended, new logins are refused (portal says "We're closed…", Ruijie's gateway check-in is answered `Auth: 0`), the portal shows the Closed banner,
+  purchase limits (allowed package types) and closed-time credit to Daily/Weekly/Monthly/voucher packages work as on MikroTik.
+- A package bought while closed is paid and running but the device is switched on when the customer taps Reconnect after opening.
+- Ruijie devices already online are cut when the gateway next checks in (about a minute). A failed disconnect is retried every minute.
+- Neither vendor has an API to switch the Wi-Fi name (SSID) off, so TelNet cannot make it vanish. To also hide it, add the vendor's own schedule
+  with the same hours: Omada controller -> Wi-Fi Scheduler (Radio Off); Ruijie Cloud / Reyee -> Wi-Fi timer (name varies by model).
+
+## SMS code for PIN/password reset (TextBee)
+- Settings -> **SMS & reset**: choose **All** (customer picks SMS or M-Pesa receipt), **SMS code only** or **M-Pesa receipt only**; enter the TextBee API key,
+  Device ID, switch it on, and use "Send test". The API key is never shown again. If SMS is chosen but not working, customers fall back to the receipt.
+- Codes: 6 digits, stored hashed, valid 10 minutes, single use, 5 wrong tries, 1 per minute and 5 per hour per number; unknown numbers get the same
+  answer (nothing revealed). Needs migration `0034_sms_otp.sql`. Each code uses one SMS of the TextBee plan; "accepted" by TextBee is not "delivered".

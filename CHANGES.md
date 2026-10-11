@@ -1,4 +1,10 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
+- **Opening hours for Omada/Ruijie** (TelNet-enforced closing, vendor Wi-Fi schedule recommended for hiding the name) and **TextBee SMS code for PIN reset** with an operator-chosen method
+  (All / SMS only / receipt only), migration `0034_sms_otp.sql`. See MULTI_HARDWARE.md.
+- **Portal connects by current site; ISP limits per site; ISP status automatic** (migration `0033_isp_auto_status.sql`). See MULTI_HARDWARE.md.
+- **Network / Network map for multi-hardware**: hardware badges, copyable portal URLs, MikroTik-only panels hidden on Omada/Ruijie cards,
+  hardware-aware empty state, delete confirmation, vendor sites refreshed and counted on the map, Omada AP clients/revenue by AP MAC.
+  Fixed: saving/promoting/deleting an Omada or Ruijie site could clear the MikroTik primary flag. See MULTI_HARDWARE.md.
 - **Operator login glass look**: `/login` now uses the glass theme. A code-only constant `LOGIN_BACKGROUND_IMAGE` at the top of `src/routes/login.tsx` switches the background image on/off (no UI option). The rest of admin is unchanged.
 
 - **Glass theme for the public pages** (client request, 4 Oct 2026): the customer portal (`/portal/*`) and the public home page now use a translucent

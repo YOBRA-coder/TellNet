@@ -36,6 +36,9 @@ export type Isp = {
   perUserMaxKbps: number;
   maxUsers: number;
   siteId: string | null;
+  /** status follows the router port (needs a MikroTik + interface) */
+  autoStatus: boolean;
+  statusCheckedAt: string | null;
 };
 
 export type PackageDurationKind = "HOURLY" | "DAILY" | "WEEKLY" | "MONTHLY";
@@ -112,6 +115,12 @@ export type Settings = {
   radiusAcctPort: number;
   /** Address MikroTik routers use to reach this app's RADIUS listener. */
   radiusServerHost: string | null;
+  /** TextBee SMS. The API key itself is never sent to the browser. */
+  smsEnabled: boolean;
+  hasSmsKey: boolean;
+  smsDeviceId: string | null;
+  /** How customers may reset a forgotten PIN: BOTH, OTP (SMS code only) or RECEIPT (M-Pesa code only). */
+  resetMethod: "BOTH" | "OTP" | "RECEIPT";
 };
 
 export type Customer = {
@@ -191,6 +200,10 @@ export type MikroTik = {
   hardwareType: "mikrotik" | "omada" | "ruijie";
   /** Vendor extras (Omada ID/site/time unit, Ruijie gateway id). */
   hwConfig: { omadacId?: string; omadaSite?: string; omadaTimeUnit?: "ms" | "us"; ruijieGwId?: string };
+  /** Omada/Ruijie: last time the gateway called our WiFiDog endpoints (Ruijie heartbeat). */
+  hwSeenAt: string | null;
+  /** Omada/Ruijie: client devices switched on right now through this site (0 for MikroTik). */
+  hwActiveDevices: number;
   name: string;
   host: string;
   apiUser: string;
@@ -349,13 +362,14 @@ export type AccessPointRow = {
 
 export type MapRouter = {
   id: string;
-  /** mikrotik | omada | ruijie — non-MikroTik sites have no CPU/ports, only authorized devices */
-  hardwareType: "mikrotik" | "omada" | "ruijie";
-  /** devices currently switched on by a package (Omada/Ruijie); null for MikroTik */
-  hwActiveCount: number | null;
-  hwDevices: { mac: string; phone: string | null; since: string; until: string }[];
   name: string;
   host: string;
+  /** mikrotik | omada | ruijie */
+  hardwareType: "mikrotik" | "omada" | "ruijie";
+  /** Omada/Ruijie: devices switched on through this site now (MikroTik uses live.activeUsers). */
+  hwActiveDevices: number;
+  /** Omada/Ruijie: last contact from the gateway (Ruijie heartbeat). */
+  hwSeenAt: string | null;
   isPrimary: boolean;
   siteId: string;
   siteName: string;

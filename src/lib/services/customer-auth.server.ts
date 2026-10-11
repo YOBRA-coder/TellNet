@@ -8,6 +8,7 @@ import {
   generateReferralCode,
 } from "@/lib/services/loyalty.server";
 import { getSettings, logEvent } from "@/lib/services/settings.server";
+import { getSmsConfig, sendSms, smsReady } from "@/lib/services/sms.server";
 
 const MAX_FAILED = 5;
 const LOCK_MINUTES = 15;
@@ -431,4 +432,105 @@ export async function changeCustomerSecret(input: {
   // Keep this device signed in; sign every other device out.
   await sql`delete from customer_sessions where customer_id = ${member.id} and device_token <> ${input.token}`;
   return { ok: true };
+}
+
+// --- Reset by SMS code (TextBee) -------------------------------------------
+
+export type ResetMethod = "BOTH" | "OTP" | "RECEIPT";
+const OTP_TTL_MIN = 10;
+const OTP_MAX_TRIES = 5;
+const OTP_RESEND_SECONDS = 60;
+const OTP_MAX_PER_HOUR = 5;
+
+/** What the portal should offer: the operator's choice, limited by whether SMS actually works. */
+export async function getResetOptions(): Promise<{ method: ResetMethod; otp: boolean; receipt: boolean }> {
+  const sql = await getSql();
+  const r = (await sql<{ reset_method: string | null }>`select reset_method from settings where id = 'default' limit 1`)[0];
+  const raw = String(r?.reset_method ?? "RECEIPT").toUpperCase();
+  const want: ResetMethod = raw === "OTP" || raw === "BOTH" ? (raw as ResetMethod) : "RECEIPT";
+  const ready = smsReady(await getSmsConfig());
+  // If SMS is chosen but not set up, fall back to the receipt so nobody is locked out.
+  const otp = ready && want !== "RECEIPT";
+  const receipt = want !== "OTP" || !ready;
+  return { method: want, otp, receipt };
+}
+
+/** Send a 6-digit code to a registered number. Always answers the same, so numbers can't be probed. */
+export async function requestResetOtp(input: { phone: string }): Promise<{ ok: boolean; error?: string; maskedPhone?: string }> {
+  const opts = await getResetOptions();
+  if (!opts.otp) return { ok: false, error: "Reset by SMS code is not available. Use your M-Pesa receipt." };
+  const phone = normalizeKenyanPhone(input.phone);
+  if (!phone) return { ok: false, error: "Enter a valid Kenyan phone number." };
+  const sql = await getSql();
+  const masked = maskPhone(phone);
+  const customer = (
+    await sql<{ id: string; status: string; registered_at: string | null }>`
+      select id, status, registered_at from customers where phone = ${phone} and deleted_at is null limit 1`
+  )[0];
+  if (!customer || !customer.registered_at || customer.status === "BLOCKED") {
+    return { ok: true, maskedPhone: masked }; // same answer: nothing is revealed
+  }
+  const recent = await sql<{ created_at: string }>`
+    select created_at from otp_codes where phone = ${phone} and created_at > now() - interval '1 hour'
+    order by created_at desc`;
+  if (recent[0] && Date.now() - new Date(recent[0].created_at).getTime() < OTP_RESEND_SECONDS * 1000) {
+    return { ok: false, error: `Please wait a minute before asking for another code.` };
+  }
+  if (recent.length >= OTP_MAX_PER_HOUR) {
+    return { ok: false, error: "Too many codes requested. Try again in an hour." };
+  }
+  const code = String(Math.floor(100000 + (randomBytes(4).readUInt32BE(0) % 900000)));
+  const { hash, salt } = hashSecret(code);
+  const id = nid("otp");
+  await sql`
+    insert into otp_codes (id, customer_id, phone, code_hash, code_salt, expires_at)
+    values (${id}, ${customer.id}, ${phone}, ${hash}, ${salt}, now() + (${OTP_TTL_MIN} || ' minutes')::interval)`;
+  const hotspot = (await getSettings()).hotspotName;
+  const sent = await sendSms(phone, `${hotspot}: your reset code is ${code}. It expires in ${OTP_TTL_MIN} minutes. Don't share it.`);
+  if (!sent.ok) {
+    await sql`delete from otp_codes where id = ${id}`;
+    await logEvent("SMS", `Reset code SMS to ${maskPhone(phone)} failed: ${sent.error}`);
+    return { ok: false, error: "We couldn't send the SMS right now. Use your M-Pesa receipt or ask the operator." };
+  }
+  return { ok: true, maskedPhone: masked };
+}
+
+export async function resetCustomerSecretWithOtp(input: {
+  phone: string;
+  code: string;
+  next: string;
+  token: string;
+}): Promise<SignInResult> {
+  const opts = await getResetOptions();
+  if (!opts.otp) return { ok: false, error: "Reset by SMS code is not available." };
+  const phone = normalizeKenyanPhone(input.phone);
+  if (!phone) return { ok: false, error: "Enter a valid Kenyan phone number." };
+  const bad = validateSecret(input.next);
+  if (bad) return { ok: false, error: bad };
+  const generic = "That code is wrong or has expired. Ask for a new code.";
+  const sql = await getSql();
+  const row = (
+    await sql<{ id: string; code_hash: string; code_salt: string; customer_id: string; attempts: number }>`
+      select id, code_hash, code_salt, customer_id, attempts from otp_codes
+      where phone = ${phone} and used_at is null and expires_at > now()
+      order by created_at desc limit 1`
+  )[0];
+  if (!row || row.attempts >= OTP_MAX_TRIES) return { ok: false, error: generic };
+  if (!verifySecret(input.code.trim(), row.code_hash, row.code_salt)) {
+    await sql`update otp_codes set attempts = attempts + 1 where id = ${row.id}`;
+    return { ok: false, error: generic };
+  }
+  const used = await sql<{ id: string }>`update otp_codes set used_at = now() where id = ${row.id} and used_at is null returning id`;
+  if (used.length === 0) return { ok: false, error: generic };
+  const { hash, salt } = hashSecret(input.next);
+  await sql`
+    update customers set pin_hash = ${hash}, pin_salt = ${salt},
+      failed_pin_attempts = 0, pin_locked_until = null,
+      reset_failed_attempts = 0, reset_locked_until = null,
+      device_token = ${input.token}, updated_at = now()
+    where id = ${row.customer_id}`;
+  await sql`delete from customer_sessions where customer_id = ${row.customer_id}`;
+  await startSession(input.token, row.customer_id);
+  await logEvent("CUSTOMER", `Customer ${phone} reset their own PIN/password with an SMS code.`);
+  return { ok: true, customerId: row.customer_id, phone };
 }
