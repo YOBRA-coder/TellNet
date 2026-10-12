@@ -10,6 +10,7 @@ import { useDevice } from "@/hooks/use-device";
 import {
   getResetOptionsFn,
   requestResetOtpFn,
+  requestSignupOtpFn,
   resetPasswordWithOtp,
   resetPasswordWithReceipt,
   signIn,
@@ -78,6 +79,27 @@ function AuthPage() {
   const resetVia: "otp" | "receipt" = via ?? (canOtp ? "otp" : "receipt");
   const [otpCode, setOtpCode] = useState("");
   const [otpNote, setOtpNote] = useState<string | null>(null);
+
+  // Create account by SMS code (only when the operator turned it on)
+  const needSignupCode = Boolean(resetOpts.data?.signup);
+  const [signupCode, setSignupCode] = useState("");
+  const [signupNote, setSignupNote] = useState<string | null>(null);
+  const sendSignupOtp = useMutation({
+    mutationFn: async () => {
+      if (!isKenyanPhone(phone)) throw new Error("Enter a valid Kenyan phone number.");
+      return requestSignupOtpFn({ data: { phone } });
+    },
+    onSuccess: (res) => {
+      if (res.ok) {
+        setError(null);
+        setSignupNote(`A 6-digit code is on its way to ${res.maskedPhone ?? "your phone"}.`);
+      } else {
+        setSignupNote(null);
+        setError(res.error ?? "Could not send the code.");
+      }
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Could not send the code."),
+  });
   const sendOtp = useMutation({
     mutationFn: async () => {
       if (!isKenyanPhone(phone)) throw new Error("Enter a valid Kenyan phone number.");
@@ -173,8 +195,13 @@ function AuthPage() {
           );
         }
 
+        if (needSignupCode && !signupCode.trim()) {
+          throw new Error("Enter the 6-digit code we sent by SMS.");
+        }
+
         return signUp({
           data: {
+            smsCode: needSignupCode ? signupCode.trim() : undefined,
             phone,
             secret,
             token: device.token,
@@ -518,6 +545,35 @@ function AuthPage() {
                 className="h-12 text-base"
               />
             </div>
+
+            {needSignupCode ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="auth-signup-otp">SMS code</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="auth-signup-otp"
+                    name="signup-otp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="6-digit code"
+                    maxLength={6}
+                    value={signupCode}
+                    onChange={(e) => setSignupCode(e.target.value.replace(/\D/g, ""))}
+                    className="h-12 text-base"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-12 shrink-0"
+                    disabled={sendSignupOtp.isPending}
+                    onClick={() => sendSignupOtp.mutate()}
+                  >
+                    {sendSignupOtp.isPending ? "Sending…" : signupNote ? "Resend" : "Send code"}
+                  </Button>
+                </div>
+                <p className="text-xs text-subtle">{signupNote ?? "We'll text a code to the number above to confirm it's yours."}</p>
+              </div>
+            ) : null}
 
             {/* Referral */}
             <div className="space-y-1.5">

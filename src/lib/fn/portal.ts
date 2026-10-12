@@ -18,6 +18,7 @@ import {
   resetCustomerSecretWithReceipt,
   resetCustomerSecretWithOtp,
   requestResetOtp,
+  requestSignupOtp,
   getResetOptions,
   getSessionCustomer,
   signInCustomer,
@@ -930,6 +931,7 @@ export const signUp = createServerFn({ method: "POST" })
         token: z.string().min(8).max(80),
         referralCode: z.string().max(20).optional(),
         claimTransactionId: z.string().max(20).optional(),
+        smsCode: z.string().max(10).optional(),
       })
       .parse(data),
   )
@@ -959,6 +961,10 @@ export const resetPasswordWithReceipt = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => resetCustomerSecretWithReceipt(data));
+
+export const requestSignupOtpFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ phone: z.string().min(9).max(20) }).parse(data))
+  .handler(async ({ data }) => requestSignupOtp(data));
 
 export const getResetOptionsFn = createServerFn({ method: "GET" }).handler(async () => getResetOptions());
 

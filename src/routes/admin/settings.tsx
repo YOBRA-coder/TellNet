@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+import { OperatorsCard } from "@/components/admin/operators-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,7 +32,7 @@ const TABS = [
   { id: "payments", label: "Payments", hint: "M-Pesa (Daraja) setup and test." },
   { id: "network", label: "Network", hint: "ISP capacity, routers and RADIUS." },
   { id: "sms", label: "SMS & reset", hint: "TextBee SMS and how customers reset a forgotten PIN." },
-  { id: "account", label: "Account", hint: "Operator console password." },
+  { id: "account", label: "Operators", hint: "Who can sign in to this console." },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -83,6 +84,7 @@ function SettingsPage() {
     smsApiKey: "",
     smsDeviceId: "",
     resetMethod: "RECEIPT" as "BOTH" | "OTP" | "RECEIPT",
+    signupOtp: false,
   });
 
   useEffect(() => {
@@ -127,6 +129,7 @@ function SettingsPage() {
       smsEnabled: q.data.smsEnabled,
       smsDeviceId: q.data.smsDeviceId ?? "",
       resetMethod: q.data.resetMethod,
+      signupOtp: q.data.signupOtp,
     }));
   }, [q.data]);
 
@@ -833,6 +836,16 @@ function SettingsPage() {
             <option value="RECEIPT">M-Pesa receipt only</option>
           </select>
         </Field>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">SMS code to create an account</p>
+            <p className="text-xs text-muted">
+              New customers must enter a code texted to their number before an account is created. It also proves they own
+              the number, so guests who already bought no longer need an M-Pesa code to claim it. Needs TextBee below.
+            </p>
+          </div>
+          <Switch checked={form.signupOtp} onCheckedChange={(v) => setForm({ ...form, signupOtp: v })} />
+        </div>
         <div className="border-t border-border pt-4">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -884,21 +897,9 @@ function SettingsPage() {
         </div>
       </Card>
 
-      <Card className={`space-y-4 p-5 ${show("account")}`}>
-        <h2 className="font-display text-lg font-semibold">Operator password</h2>
-        <p className="text-sm text-muted">
-          Shared password for the operator console. Leave blank to keep the current password.
-        </p>
-        <Field label="New operator password (min 4 characters)">
-          <Input
-            type="password"
-            autoComplete="new-password"
-            value={form.operatorPassword}
-            onChange={(e) => setForm({ ...form, operatorPassword: e.target.value })}
-            placeholder="Leave blank to keep unchanged"
-          />
-        </Field>
-      </Card>
+      <div className={show("account")}>
+        <OperatorsCard />
+      </div>
 <div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-bg/95 px-1 py-3 backdrop-blur">
         <Button type="submit" size="lg" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Save settings"}

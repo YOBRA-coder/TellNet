@@ -26,7 +26,7 @@ export function hashSecret(secret: string): { hash: string; salt: string } {
   return { hash, salt };
 }
 
-function verifySecret(secret: string, hash: string, salt: string): boolean {
+export function verifySecret(secret: string, hash: string, salt: string): boolean {
   const expected = Buffer.from(hash, "hex");
   const actual = scryptSync(secret, salt, expected.length);
   return expected.length === actual.length && timingSafeEqual(expected, actual);
@@ -105,7 +105,7 @@ export { announceReferral };
 
 export type SignUpResult =
   | { ok: true; customerId: string; phone: string; referralCode: string | null; referralApplied: boolean }
-  | { ok: false; error: string; code?: "claim_required" | "exists" };
+  | { ok: false; error: string; code?: "claim_required" | "exists" | "otp_required" };
 
 export async function signUpCustomer(input: {
   phone: string;
@@ -113,6 +113,7 @@ export async function signUpCustomer(input: {
   token: string;
   referralCode?: string;
   claimTransactionId?: string;
+  smsCode?: string;
 }): Promise<SignUpResult> {
   const phone = normalizeKenyanPhone(input.phone);
   if (!phone) return { ok: false, error: "Enter a valid Kenyan phone number." };
@@ -147,7 +148,8 @@ export async function signUpCustomer(input: {
   // With no SMS verification available, prove ownership with an M-Pesa
   // receipt from one of their payments so nobody can claim another
   // person's number just by typing it.
-  if (row) {
+  const otpRequired = await signupOtpRequired();
+  if (row && !otpRequired) {
     const paid = await sql<{ mpesa_transaction_id: string }>`
       select mpesa_transaction_id from payments
       where customer_id = ${row.id} and status = 'SUCCESS' and mpesa_transaction_id is not null
@@ -179,6 +181,16 @@ export async function signUpCustomer(input: {
       return { ok: false, error: "You can't use your own referral code." };
     }
     referrerId = referrer.id;
+  }
+
+  // SMS confirmation (when the operator requires it) proves the number is theirs, so it replaces the receipt claim above.
+  if (otpRequired) {
+    if (!input.smsCode?.trim()) {
+      return { ok: false, code: "otp_required", error: "Enter the 6-digit code we sent by SMS." };
+    }
+    if (!(await consumeOtp(phone, "SIGNUP", input.smsCode))) {
+      return { ok: false, code: "otp_required", error: "That code is wrong or has expired. Ask for a new code." };
+    }
   }
 
   const { hash, salt } = hashSecret(input.secret);
@@ -443,7 +455,7 @@ const OTP_RESEND_SECONDS = 60;
 const OTP_MAX_PER_HOUR = 5;
 
 /** What the portal should offer: the operator's choice, limited by whether SMS actually works. */
-export async function getResetOptions(): Promise<{ method: ResetMethod; otp: boolean; receipt: boolean }> {
+export async function getResetOptions(): Promise<{ method: ResetMethod; otp: boolean; receipt: boolean; signup: boolean }> {
   const sql = await getSql();
   const r = (await sql<{ reset_method: string | null }>`select reset_method from settings where id = 'default' limit 1`)[0];
   const raw = String(r?.reset_method ?? "RECEIPT").toUpperCase();
@@ -452,7 +464,7 @@ export async function getResetOptions(): Promise<{ method: ResetMethod; otp: boo
   // If SMS is chosen but not set up, fall back to the receipt so nobody is locked out.
   const otp = ready && want !== "RECEIPT";
   const receipt = want !== "OTP" || !ready;
-  return { method: want, otp, receipt };
+  return { method: want, otp, receipt, signup: await signupOtpRequired() };
 }
 
 /** Send a 6-digit code to a registered number. Always answers the same, so numbers can't be probed. */
@@ -471,7 +483,7 @@ export async function requestResetOtp(input: { phone: string }): Promise<{ ok: b
     return { ok: true, maskedPhone: masked }; // same answer: nothing is revealed
   }
   const recent = await sql<{ created_at: string }>`
-    select created_at from otp_codes where phone = ${phone} and created_at > now() - interval '1 hour'
+    select created_at from otp_codes where phone = ${phone} and purpose = 'RESET' and created_at > now() - interval '1 hour'
     order by created_at desc`;
   if (recent[0] && Date.now() - new Date(recent[0].created_at).getTime() < OTP_RESEND_SECONDS * 1000) {
     return { ok: false, error: `Please wait a minute before asking for another code.` };
@@ -512,7 +524,7 @@ export async function resetCustomerSecretWithOtp(input: {
   const row = (
     await sql<{ id: string; code_hash: string; code_salt: string; customer_id: string; attempts: number }>`
       select id, code_hash, code_salt, customer_id, attempts from otp_codes
-      where phone = ${phone} and used_at is null and expires_at > now()
+      where phone = ${phone} and purpose = 'RESET' and used_at is null and expires_at > now()
       order by created_at desc limit 1`
   )[0];
   if (!row || row.attempts >= OTP_MAX_TRIES) return { ok: false, error: generic };
@@ -533,4 +545,66 @@ export async function resetCustomerSecretWithOtp(input: {
   await startSession(input.token, row.customer_id);
   await logEvent("CUSTOMER", `Customer ${phone} reset their own PIN/password with an SMS code.`);
   return { ok: true, customerId: row.customer_id, phone };
+}
+
+// --- Sign-up by SMS code -----------------------------------------------------
+
+/** Operator switched "SMS code to create an account" on AND SMS really works. */
+export async function signupOtpRequired(): Promise<boolean> {
+  const sql = await getSql();
+  const r = (await sql<{ signup_otp: boolean | null }>`select signup_otp from settings where id = 'default' limit 1`)[0];
+  return Boolean(r?.signup_otp) && smsReady(await getSmsConfig());
+}
+
+/** Check a code for (phone, purpose); counts wrong tries; a correct code is used up. */
+async function consumeOtp(phone: string, purpose: string, code: string): Promise<boolean> {
+  const sql = await getSql();
+  const row = (
+    await sql<{ id: string; code_hash: string; code_salt: string; attempts: number }>`
+      select id, code_hash, code_salt, attempts from otp_codes
+      where phone = ${phone} and purpose = ${purpose} and used_at is null and expires_at > now()
+      order by created_at desc limit 1`
+  )[0];
+  if (!row || row.attempts >= OTP_MAX_TRIES) return false;
+  if (!verifySecret(code.trim(), row.code_hash, row.code_salt)) {
+    await sql`update otp_codes set attempts = attempts + 1 where id = ${row.id}`;
+    return false;
+  }
+  const used = await sql<{ id: string }>`update otp_codes set used_at = now() where id = ${row.id} and used_at is null returning id`;
+  return used.length > 0;
+}
+
+/** Text a sign-up code to a number that has no account yet. */
+export async function requestSignupOtp(input: { phone: string }): Promise<{ ok: boolean; error?: string; maskedPhone?: string }> {
+  if (!(await signupOtpRequired())) return { ok: false, error: "SMS codes are not needed to sign up." };
+  const phone = normalizeKenyanPhone(input.phone);
+  if (!phone) return { ok: false, error: "Enter a valid Kenyan phone number." };
+  const sql = await getSql();
+  const cust = (
+    await sql<{ id: string; status: string; registered_at: string | null }>`
+      select id, status, registered_at from customers where phone = ${phone} and deleted_at is null limit 1`
+  )[0];
+  if (cust?.status === "BLOCKED") return { ok: false, error: "This number is blocked. Please contact the hotspot operator." };
+  if (cust?.registered_at) return { ok: false, error: "This number already has an account. Sign in instead." };
+  const recent = await sql<{ created_at: string }>`
+    select created_at from otp_codes where phone = ${phone} and purpose = 'SIGNUP' and created_at > now() - interval '1 hour'
+    order by created_at desc`;
+  if (recent[0] && Date.now() - new Date(recent[0].created_at).getTime() < OTP_RESEND_SECONDS * 1000) {
+    return { ok: false, error: "Please wait a minute before asking for another code." };
+  }
+  if (recent.length >= OTP_MAX_PER_HOUR) return { ok: false, error: "Too many codes requested. Try again in an hour." };
+  const code = String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
+  const { hash, salt } = hashSecret(code);
+  const id = nid("otp");
+  await sql`
+    insert into otp_codes (id, customer_id, phone, code_hash, code_salt, purpose, expires_at)
+    values (${id}, ${cust?.id ?? "new"}, ${phone}, ${hash}, ${salt}, 'SIGNUP', now() + (${OTP_TTL_MIN} || ' minutes')::interval)`;
+  const hotspot = (await getSettings()).hotspotName;
+  const sent = await sendSms(phone, `${hotspot}: your sign-up code is ${code}. It expires in ${OTP_TTL_MIN} minutes. Don't share it.`);
+  if (!sent.ok) {
+    await sql`delete from otp_codes where id = ${id}`;
+    await logEvent("SMS", `Sign-up SMS to ${maskPhone(phone)} failed: ${sent.error}`);
+    return { ok: false, error: "We couldn't send the SMS right now. Please try again in a moment." };
+  }
+  return { ok: true, maskedPhone: maskPhone(phone) };
 }

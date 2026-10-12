@@ -1,4 +1,6 @@
 # Changes — customer accounts, sites, rewards page, RADIUS, network map, per-ISP capacity, vouchers & portal polish, outage credit, opening hours, AP revenue
+- **SMS code at customer sign-up** (optional, operator switch in Settings -> SMS & reset; migration `0036_signup_otp.sql`).
+- **Operator accounts** (phone + password, owners/operators, SMS-code password reset; migration `0035_operators.sql`) and an **installable-app (PWA) fix**: working manifest, 192/512 icons, service worker, install button. See MULTI_HARDWARE.md.
 - **Opening hours for Omada/Ruijie** (TelNet-enforced closing, vendor Wi-Fi schedule recommended for hiding the name) and **TextBee SMS code for PIN reset** with an operator-chosen method
   (All / SMS only / receipt only), migration `0034_sms_otp.sql`. See MULTI_HARDWARE.md.
 - **Portal connects by current site; ISP limits per site; ISP status automatic** (migration `0033_isp_auto_status.sql`). See MULTI_HARDWARE.md.

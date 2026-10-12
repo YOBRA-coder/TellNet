@@ -3,6 +3,7 @@ import { getOperatorSession } from "@/lib/fn/public";
 
 export function useOperatorSession() {
   const [isOperator, setIsOperator] = useState(false);
+  const [who, setWho] = useState<{ name: string | null; owner: boolean; needsAccount: boolean }>({ name: null, owner: false, needsAccount: false });
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -13,6 +14,7 @@ export function useOperatorSession() {
         if (cancelled) return;
 
         setIsOperator(result.ok);
+        setWho({ name: result.name, owner: result.owner, needsAccount: result.needsAccount });
         setReady(true);
       })
       .catch((error) => {
@@ -32,5 +34,8 @@ export function useOperatorSession() {
   return {
     isPending: !ready,
     isOperator,
+    name: who.name,
+    isOwner: who.owner,
+    needsAccount: who.needsAccount,
   };
 }

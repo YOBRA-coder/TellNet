@@ -121,6 +121,8 @@ export type Settings = {
   smsDeviceId: string | null;
   /** How customers may reset a forgotten PIN: BOTH, OTP (SMS code only) or RECEIPT (M-Pesa code only). */
   resetMethod: "BOTH" | "OTP" | "RECEIPT";
+  /** Customers must confirm their phone by SMS code when creating an account. */
+  signupOtp: boolean;
 };
 
 export type Customer = {

@@ -4,8 +4,9 @@ import {
   HeadContent,
   Outlet,
   Scripts,
+  useRouterState,
 } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
@@ -29,8 +30,8 @@ export const Route = createRootRoute({
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/pwa/apple-touch-icon.png" },
       {
         rel: "preconnect",
         href: "https://fonts.googleapis.com",
@@ -51,6 +52,27 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   const [queryClient] = useState(() => makeQueryClient());
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  useEffect(() => {
+    // Operator pages install as their own app (opens on the dashboard); everything else installs the customer portal.
+    try {
+      const p = pathname;
+      const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+      if (link) link.href = p.startsWith("/admin") || p.startsWith("/login") ? "/admin.webmanifest" : "/manifest.webmanifest";
+    } catch {
+      /* installing is optional */
+    }
+  }, [pathname]);
+  useEffect(() => {
+    try {
+      // A service worker (even a tiny one) is what lets browsers offer a real install instead of a shortcut.
+      if ("serviceWorker" in navigator && window.isSecureContext) {
+        void navigator.serviceWorker.register("/sw.js").catch(() => {});
+      }
+    } catch {
+      /* installing is optional */
+    }
+  }, []);
   return (
     <html lang="en" className="antialiased" suppressHydrationWarning>
       <head>

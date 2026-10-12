@@ -123,6 +123,7 @@ export function mapSettings(row: SqlRow): Settings {
     smsEnabled: asBool(row.sms_enabled),
     hasSmsKey: Boolean(row.sms_api_key),
     smsDeviceId: row.sms_device_id ? String(row.sms_device_id) : null,
+    signupOtp: asBool(row.signup_otp),
     resetMethod: row.reset_method === "BOTH" || row.reset_method === "OTP" ? row.reset_method : "RECEIPT",
   };
 }

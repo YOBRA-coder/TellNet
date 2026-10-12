@@ -80,3 +80,23 @@ Student domain blocking, per-package speed, live router stats (MikroTik-only fea
   Device ID, switch it on, and use "Send test". The API key is never shown again. If SMS is chosen but not working, customers fall back to the receipt.
 - Codes: 6 digits, stored hashed, valid 10 minutes, single use, 5 wrong tries, 1 per minute and 5 per hour per number; unknown numbers get the same
   answer (nothing revealed). Needs migration `0034_sms_otp.sql`. Each code uses one SMS of the TextBee plan; "accepted" by TextBee is not "delivered".
+
+## Operator accounts, SMS password reset and the installable app
+- **Operators** (Settings -> Operators, migration `0035_operators.sql`): each person signs in with their own phone number + password. Roles:
+  Owner (also manages accounts) and Operator. Owners can add people, reset a password, disable/enable, change role, remove. At least one active owner is always kept.
+  Wrong password 5 times locks that account for 15 minutes. Disabling or removing an account ends its session immediately.
+- **Upgrade is safe:** while no account exists the old shared password (`telnet-admin` unless changed) still works. Sign in with it, create your owner account
+  in Settings -> Operators; from then on the shared password stops working. Emergency recovery if every owner is locked out: delete the rows from the `operators`
+  table, which brings the shared password back.
+- **Forgot password:** "Forgot password?" on the login page texts a 6-digit code (needs TextBee set up in Settings -> SMS & reset; same rules as customers: 10 minutes,
+  single use, 5 tries, 1/minute, 5/hour). Operator and customer codes are kept apart. Without SMS, an owner resets it from Settings -> Operators.
+- Sessions last 14 days (was 8 hours) so the installed phone app stays signed in; the account is re-checked on every request.
+- **Install as an app (PWA):** the app manifest was never being served on your deployment and the only icon was 180px, so browsers fell back to a "shortcut".
+  Added `manifest.webmanifest` (customer portal) and `admin.webmanifest` (opens on the dashboard; used on /login and /admin), 192/512/maskable icons in `public/pwa/`,
+  a minimal service worker `public/sw.js` (offline page only; never caches pages or API) and an "Install the operator app" button on the login page.
+  If you already added a shortcut, remove it and install again after deploying. iPhone: Share -> Add to Home Screen (iOS has no install prompt).
+
+## SMS code when customers create an account
+- Settings -> SMS & reset -> "SMS code to create an account" (migration `0036_signup_otp.sql`, off by default; only active when TextBee works).
+  The sign-up form then asks for a 6-digit code texted to the number (10 minutes, single use, 5 tries, 1/minute, 5/hour). Sign-up codes are separate from reset codes.
+- The code proves the person owns the number, so a guest who already bought no longer needs an M-Pesa code to claim it. With the switch off, nothing changes.

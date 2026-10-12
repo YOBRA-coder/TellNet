@@ -1277,6 +1277,7 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
         smsApiKey: z.string().max(200).optional(),
         smsDeviceId: z.string().max(100).optional(),
         resetMethod: z.enum(["BOTH", "OTP", "RECEIPT"]).optional(),
+        signupOtp: z.boolean().optional(),
       })
       .parse(data),
   )
@@ -1348,6 +1349,9 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
     }
     if (data.smsApiKey && data.smsApiKey.trim()) {
       await sql`update settings set sms_api_key = ${data.smsApiKey.trim()}, updated_at = now() where id = 'default'`;
+    }
+    if (typeof data.signupOtp === "boolean") {
+      await sql`update settings set signup_otp = ${data.signupOtp}, updated_at = now() where id = 'default'`;
     }
     if (data.resetMethod) {
       await sql`update settings set reset_method = ${data.resetMethod}, updated_at = now() where id = 'default'`;
@@ -2695,4 +2699,96 @@ export const retryActivationAdmin = createServerFn({ method: "POST" })
     return result.ok
       ? { ok: true as const }
       : { ok: false as const, error: String(result.reason || "Activation failed") };
+  });
+
+
+// --- Operator accounts (owner only; changing your own password is open to every operator) ---------------
+
+async function ownerOnly() {
+  const { requireOwner } = await import("@/lib/auth/operator-session.server");
+  return requireOwner();
+}
+
+export const listOperatorsAdmin = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const { getOperatorIdentity } = await import("@/lib/auth/operator-session.server");
+    const { listOperators } = await import("@/lib/services/operators.server");
+    const me = await getOperatorIdentity();
+    return { me: me ? { id: me.id, owner: me.owner, name: me.name } : null, operators: me?.owner ? await listOperators() : [] };
+  });
+
+export const createOperatorAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z
+      .object({
+        name: z.string().min(2).max(60),
+        phone: z.string().min(9).max(20),
+        password: z.string().min(6).max(64),
+        role: z.enum(["OWNER", "OPERATOR"]),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const me = await ownerOnly();
+    const { createOperator, countOperators } = await import("@/lib/services/operators.server");
+    const first = (await countOperators()) === 0;
+    // The first account is always an owner (it replaces the shared password).
+    const res = await createOperator({ ...data, role: first ? "OWNER" : data.role });
+    if (!res.ok) return res;
+    if (first && me.id === null) {
+      // Move this browser from the old shared-password session onto the new account.
+      const { createOperatorSession } = await import("@/lib/auth/operator-session.server");
+      await createOperatorSession(res.id);
+    }
+    return { ok: true as const, id: res.id, first };
+  });
+
+export const updateOperatorAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z
+      .object({
+        id: z.string().min(1),
+        name: z.string().min(2).max(60).optional(),
+        phone: z.string().min(9).max(20).optional(),
+        role: z.enum(["OWNER", "OPERATOR"]).optional(),
+        status: z.enum(["ACTIVE", "DISABLED"]).optional(),
+        newPassword: z.string().min(6).max(64).optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    await ownerOnly();
+    const { updateOperator, setOperatorPassword } = await import("@/lib/services/operators.server");
+    const { id, newPassword, ...patch } = data;
+    const res = await updateOperator(id, patch);
+    if (!res.ok) return res;
+    if (newPassword) {
+      const pw = await setOperatorPassword(id, newPassword);
+      if (!pw.ok) return pw;
+    }
+    return { ok: true as const };
+  });
+
+export const deleteOperatorAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ id: z.string().min(1) }).parse(data))
+  .handler(async ({ data }) => {
+    const me = await ownerOnly();
+    if (me.id === data.id) return { ok: false as const, error: "You can't remove your own account." };
+    const { deleteOperator } = await import("@/lib/services/operators.server");
+    return deleteOperator(data.id);
+  });
+
+export const changeMyOperatorPassword = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ current: z.string().min(1).max(64), next: z.string().min(6).max(64) }).parse(data))
+  .handler(async ({ data }) => {
+    const { getOperatorIdentity } = await import("@/lib/auth/operator-session.server");
+    const me = await getOperatorIdentity();
+    if (!me?.id) return { ok: false as const, error: "Create your own account first (Settings → Operators)." };
+    const { changeOwnPassword } = await import("@/lib/services/operators.server");
+    return changeOwnPassword(me.id, data.current, data.next);
   });
