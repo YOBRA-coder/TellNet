@@ -162,9 +162,10 @@ function Home() {
             Already paid? Recover my package
           </Link>
         </p>
+         <ShopBanner />
       </section>
 
-      <ShopBanner />
+     
 
       <section className="mx-auto grid max-w-5xl gap-4 px-5 pb-20 sm:grid-cols-3">
         <Feature
