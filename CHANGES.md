@@ -267,3 +267,6 @@ tell me more and I'll build it.
 - Payment is a toggle: same M-Pesa as Wi-Fi, or a separate till/paybill (secrets write-only).
 - Safety: an order with an unknown outcome is never re-sent automatically; it is flagged "needs attention" so a customer is not delivered twice or double-charged.
 - Honest limits: TellNet does not include the Android USSD automation app, and the API option needs your provider's real URL/fields from their docs. Okoa is only a label; whether it works depends on the provider.
+
+## Shop visibility
+Portal home now shows a prominent "Buy now" banner above the packages and a one-time-per-visit pop-up announcing the shop (both only when the shop is enabled). On the shop page, tapping a product opens a pop-up asking for amount (airtime), My/Another number and M-Pesa phone, then pays.

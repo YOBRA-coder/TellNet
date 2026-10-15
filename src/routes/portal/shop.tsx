@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useDevice } from "@/hooks/use-device";
 import { readSite } from "@/lib/device";
 import { createShopOrder, getShopInfo, getShopOrderStatus } from "@/lib/fn/portal";
@@ -127,6 +128,15 @@ function Catalog({ info }: { info: Info }) {
         ))}
       </div>
 
+      <Dialog open={chosen !== null} onOpenChange={(o) => { if (!o) { setProductId(null); setError(null); } }}>
+        <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{chosen?.name}</DialogTitle>
+            <DialogDescription>
+              {chosen?.kind === "AIRTIME" ? "Enter the amount and who it's for." : `${formatKes(chosen?.price ?? 0, info.currency)} · enter your details to pay with M-Pesa.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
       {chosen?.kind === "AIRTIME" ? (
         <div className="space-y-1.5">
           <Label htmlFor="shop-amount">Amount ({info.currency})</Label>
@@ -157,6 +167,9 @@ function Catalog({ info }: { info: Info }) {
       <Button size="xl" className="w-full" disabled={buy.isPending || !chosen || price < 1} onClick={() => buy.mutate()}>
         {buy.isPending ? "Sending M-Pesa prompt…" : chosen ? `Pay ${formatKes(price, info.currency)} with M-Pesa` : "Choose an item"}
       </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

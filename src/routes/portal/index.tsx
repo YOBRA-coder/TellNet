@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PackageBrowser } from "@/components/portal/package-browser";
-import { ShopLink } from "@/components/portal/shop-link";
+import { ShopBanner, ShopLink, ShopPromo } from "@/components/portal/shop-link";
 import { PurchaseConsent } from "@/components/portal/legal-footer";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
@@ -213,6 +213,8 @@ function PortalHome() {
             Choose a package. Pay with M-Pesa. You are online the moment the
             payment is confirmed.
           </p>
+          <ShopBanner />
+          <ShopPromo />
           {internetUp && (
             <p className="mt-4 rounded-lg border border-warn/20 bg-warn/10 px-3 py-2 text-sm text-warn">
               Connected to the Internet.
