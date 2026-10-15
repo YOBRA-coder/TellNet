@@ -214,10 +214,12 @@ function PortalHome() {
             payment is confirmed.
           </p>
           <ShopBanner />
-         {/*<ShopPromo />*/} 
+         {/*<ShopPromo />
           {internetUp && (
             <p className="mt-4 rounded-lg border border-warn/20 bg-warn/10 px-3 py-2 text-sm text-warn"></p>
           )}
+         */} 
+         
         <div className="mt-8 w-full md:relative md:left-1/2 md:-translate-x-1/2 md:w-[200%] md:max-w-[960px]">
             <PackageBrowser
               packages={packages}
