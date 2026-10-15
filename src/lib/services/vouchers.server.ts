@@ -198,6 +198,8 @@ export async function listVouchersPage(input: {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** limit to one site (site-limited operators); undefined = every site */
+  siteId?: string | null;
 }) {
   const sql = await getSql();
   const pageSize = Math.min(100, Math.max(10, input.pageSize ?? 50));
@@ -205,6 +207,7 @@ export async function listVouchersPage(input: {
   const status = input.status ?? null;
   const batch = input.batch ?? null;
   const search = input.search?.trim() ? `%${input.search.trim().toUpperCase()}%` : null;
+  const site = input.siteId ?? null;
 
   // "Expired" is either stored as EXPIRED or an AVAILABLE code past its date.
   // (The tagged-template client can't embed one query in another, so the
@@ -212,7 +215,7 @@ export async function listVouchersPage(input: {
   const rows = await sql<SqlRow>`
     with t as (
       select v.id, v.code, v.batch_label, v.created_at, v.redeemed_at, v.expires_at,
-             p.name as package_name,
+             coalesce(v.site_id, 'site_default') as vsite, p.name as package_name,
              case when v.status = 'AVAILABLE' and v.expires_at is not null and v.expires_at < now()
                   then 'EXPIRED' else v.status end as eff_status
       from vouchers v join packages p on p.id = v.package_id
@@ -221,13 +224,14 @@ export async function listVouchersPage(input: {
     where (${status}::text is null or eff_status = ${status})
       and (${batch}::text is null or coalesce(batch_label, '') = ${batch})
       and (${search}::text is null or code ilike ${search})
+      and (${site}::text is null or vsite = ${site})
     order by created_at desc, code
     limit ${pageSize} offset ${(page - 1) * pageSize}
   `;
   const total = (
     await sql<{ n: number }>`
       with t as (
-        select v.code, v.batch_label,
+        select v.code, v.batch_label, coalesce(v.site_id, 'site_default') as vsite,
                case when v.status = 'AVAILABLE' and v.expires_at is not null and v.expires_at < now()
                     then 'EXPIRED' else v.status end as eff_status
         from vouchers v
@@ -236,24 +240,26 @@ export async function listVouchersPage(input: {
       where (${status}::text is null or eff_status = ${status})
         and (${batch}::text is null or coalesce(batch_label, '') = ${batch})
         and (${search}::text is null or code ilike ${search})
+        and (${site}::text is null or vsite = ${site})
     `
   )[0]?.n ?? 0;
   const countRows = await sql<{ s: string; n: number }>`
     with t as (
-      select v.batch_label,
+      select v.batch_label, coalesce(v.site_id, 'site_default') as vsite,
              case when v.status = 'AVAILABLE' and v.expires_at is not null and v.expires_at < now()
                   then 'EXPIRED' else v.status end as eff_status
       from vouchers v
     )
     select eff_status as s, count(*)::int as n from t
     where (${batch}::text is null or coalesce(batch_label, '') = ${batch})
+      and (${site}::text is null or vsite = ${site})
     group by eff_status
   `;
   const counts = { AVAILABLE: 0, REDEEMED: 0, EXPIRED: 0 } as Record<string, number>;
   for (const c of countRows) counts[c.s] = Number(c.n);
   const batches = await sql<{ label: string; total: number; available: number; redeemed: number; expired: number; last_created: string }>`
     with t as (
-      select v.batch_label, v.created_at,
+      select v.batch_label, v.created_at, coalesce(v.site_id, 'site_default') as vsite,
              case when v.status = 'AVAILABLE' and v.expires_at is not null and v.expires_at < now()
                   then 'EXPIRED' else v.status end as eff_status
       from vouchers v
@@ -264,7 +270,7 @@ export async function listVouchersPage(input: {
            count(*) filter (where eff_status = 'REDEEMED')::int as redeemed,
            count(*) filter (where eff_status = 'EXPIRED')::int as expired,
            max(created_at) as last_created
-    from t group by 1 order by max(created_at) desc
+    from t where (${site}::text is null or vsite = ${site}) group by 1 order by max(created_at) desc
   `;
   return { rows, total, page, pageSize, counts, batches };
 }
@@ -274,23 +280,26 @@ export async function deleteVouchers(input: {
   mode: "redeemed" | "expired" | "batch" | "ids";
   batch?: string;
   ids?: string[];
+  siteId?: string | null;
 }): Promise<number> {
   const sql = await getSql();
   const batch = input.batch ?? null;
+  const site = input.siteId ?? null;
   let res: { id: string }[] = [];
   if (input.mode === "ids") {
     const ids = (input.ids ?? []).slice(0, 500);
     if (ids.length === 0) return 0;
-    res = await sql<{ id: string }>`delete from vouchers where id = any(${ids}) returning id`;
+    res = await sql<{ id: string }>`delete from vouchers where id = any(${ids}) and (${site}::text is null or coalesce(site_id, 'site_default') = ${site}) returning id`;
   } else if (input.mode === "batch") {
     if (batch == null) return 0;
     res = await sql<{ id: string }>`
-      delete from vouchers where coalesce(batch_label, '') = ${batch} returning id
+      delete from vouchers where coalesce(batch_label, '') = ${batch} and (${site}::text is null or coalesce(site_id, 'site_default') = ${site}) returning id
     `;
   } else if (input.mode === "redeemed") {
     res = await sql<{ id: string }>`
       delete from vouchers
       where status = 'REDEEMED' and (${batch}::text is null or coalesce(batch_label, '') = ${batch})
+        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
       returning id
     `;
   } else {
@@ -298,6 +307,7 @@ export async function deleteVouchers(input: {
       delete from vouchers
       where (status = 'EXPIRED' or (status = 'AVAILABLE' and expires_at is not null and expires_at < now()))
         and (${batch}::text is null or coalesce(batch_label, '') = ${batch})
+        and (${site}::text is null or coalesce(site_id, 'site_default') = ${site})
       returning id
     `;
   }
@@ -323,8 +333,9 @@ export async function autoCleanVouchers(): Promise<number> {
 }
 
 /** Unused vouchers with everything a printed slip needs. */
-export async function vouchersForPrint(input: { batch?: string; ids?: string[] }) {
+export async function vouchersForPrint(input: { batch?: string; ids?: string[]; siteId?: string | null }) {
   const sql = await getSql();
+  const site = input.siteId ?? null;
   const batch = input.batch ?? null;
   const ids = input.ids && input.ids.length > 0 ? input.ids.slice(0, 500) : null;
   return sql<{ code: string; package_name: string; price: number; duration_minutes: number; max_devices: number; expires_at: string | null; batch_label: string | null }>`
@@ -333,6 +344,7 @@ export async function vouchersForPrint(input: { batch?: string; ids?: string[] }
     where v.status = 'AVAILABLE' and (v.expires_at is null or v.expires_at > now())
       and (${ids}::text[] is null or v.id = any(${ids}))
       and (${batch}::text is null or coalesce(v.batch_label, '') = ${batch})
+      and (${site}::text is null or coalesce(v.site_id, 'site_default') = ${site})
     order by v.created_at desc, v.code
     limit 500
   `;

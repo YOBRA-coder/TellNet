@@ -257,3 +257,13 @@ already shows phone/package/loyalty) and the existing admin login (which is
 already phone+password gated by `authMiddleware`) — if you mean something
 else (e.g. customers should be able to set a password, not just a phone),
 tell me more and I'll build it.
+
+## Operators belong to a site + Airtime/Data shop (migrations 0037, 0038)
+
+**Operators by site.** The owner assigns each operator to one site (Settings → Operators). Operators only see and act on that site's customers, payments, vouchers, live users, reports, dashboard and shop orders; Packages, Network and Settings are owner-only. Owners see all sites. Promoting an operator to owner clears their site.
+
+**Shop** (`/portal/shop`, link on portal home, only when enabled). Customers buy Data / Minutes / SMS / Airtime for their own or another number, paying by M-Pesa STK. Admin → Shop shows orders (scoped to the operator's site) with Retry / Mark delivered / Mark refunded; owners also get Setup.
+- Delivery is a toggle: **Android phone (USSD)** — the phone app polls `GET /api/shop/device/next` and reports `POST /api/shop/device/result` with a Bearer device key (stored hashed, shown once); or **Reseller API** — one templated HTTP call (placeholders `{phone} {phone254} {phoneplus} {payer} {amount} {order} {code} {kind} {name}`, success field/value).
+- Payment is a toggle: same M-Pesa as Wi-Fi, or a separate till/paybill (secrets write-only).
+- Safety: an order with an unknown outcome is never re-sent automatically; it is flagged "needs attention" so a customer is not delivered twice or double-charged.
+- Honest limits: TellNet does not include the Android USSD automation app, and the API option needs your provider's real URL/fields from their docs. Okoa is only a label; whether it works depends on the provider.

@@ -100,3 +100,6 @@ Student domain blocking, per-package speed, live router stats (MikroTik-only fea
 - Settings -> SMS & reset -> "SMS code to create an account" (migration `0036_signup_otp.sql`, off by default; only active when TextBee works).
   The sign-up form then asks for a 6-digit code texted to the number (10 minutes, single use, 5 tries, 1/minute, 5/hour). Sign-up codes are separate from reset codes.
 - The code proves the person owns the number, so a guest who already bought no longer needs an M-Pesa code to claim it. With the switch off, nothing changes.
+
+## Site-bound operators and the shop
+See CHANGES.md ("Operators belong to a site + Airtime/Data shop"). Migrations 0037 (operators.site_id) and 0038 (shop tables) run automatically.

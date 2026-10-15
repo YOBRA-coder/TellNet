@@ -66,13 +66,16 @@ function requireLiveCredentials(
   }
 }
 
+/** Credentials to use instead of the Wi-Fi ones (the shop can have its own till / paybill). */
+export type MpesaOverride = Partial<Awaited<ReturnType<typeof getSettingsSecret>>>;
+
 export async function initiateStkPush(input: {
   phone: string;
   amount: number;
   accountRef: string;
   description: string;
-}): Promise<StkResult> {
-  const settings = await getSettingsSecret();
+}, override?: MpesaOverride): Promise<StkResult> {
+  const settings = { ...(await getSettingsSecret()), ...(override ?? {}) };
   requireLiveCredentials(settings);
 
   const { token, base } = await darajaToken(
@@ -133,11 +136,11 @@ export async function initiateStkPush(input: {
   };
 }
 
-export async function queryStkStatus(checkoutRequestId: string): Promise<{
+export async function queryStkStatus(checkoutRequestId: string, override?: MpesaOverride): Promise<{
   resultCode: number;
   resultDesc: string;
 }> {
-  const settings = await getSettingsSecret();
+  const settings = { ...(await getSettingsSecret()), ...(override ?? {}) };
   requireLiveCredentials(settings);
   const { token, base } = await darajaToken(
     settings.mpesaConsumerKey!,

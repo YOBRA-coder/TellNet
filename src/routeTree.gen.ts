@@ -24,6 +24,7 @@ import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminPaymentsRouteImport } from './routes/admin/payments'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminShopRouteImport } from './routes/admin/shop'
 import { Route as AdminVouchersRouteImport } from './routes/admin/vouchers'
 import { Route as PortalIndexRouteImport } from './routes/portal/index'
 import { Route as PortalAccountRouteImport } from './routes/portal/account'
@@ -36,6 +37,7 @@ import { Route as PortalPaymentRouteImport } from './routes/portal/payment'
 import { Route as PortalPaymentStatusRouteImport } from './routes/portal/payment-status'
 import { Route as PortalRecoverRouteImport } from './routes/portal/recover'
 import { Route as PortalRewardsRouteImport } from './routes/portal/rewards'
+import { Route as PortalShopRouteImport } from './routes/portal/shop'
 import { Route as PortalVoucherRouteImport } from './routes/portal/voucher'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronTickRouteImport } from './routes/api/cron.tick'
@@ -43,6 +45,8 @@ import { Route as ApiMpesaCallbackRouteImport } from './routes/api/mpesa.callbac
 import { Route as ApiPayCallbackRouteImport } from './routes/api/pay.callback'
 import { Route as PortalLegalDocRouteImport } from './routes/portal/legal.$doc'
 import { Route as ApiHwEntryRouterIdRouteImport } from './routes/api/hw.entry.$routerId'
+import { Route as ApiShopDeviceNextRouteImport } from './routes/api/shop.device.next'
+import { Route as ApiShopDeviceResultRouteImport } from './routes/api/shop.device.result'
 import { Route as ApiHwWdRouterIdSplatRouteImport } from './routes/api/hw.wd.$routerId.$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -120,6 +124,11 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminShopRoute = AdminShopRouteImport.update({
+  id: '/shop',
+  path: '/shop',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminVouchersRoute = AdminVouchersRouteImport.update({
   id: '/vouchers',
   path: '/vouchers',
@@ -180,6 +189,11 @@ const PortalRewardsRoute = PortalRewardsRouteImport.update({
   path: '/rewards',
   getParentRoute: () => PortalRouteRoute,
 } as any)
+const PortalShopRoute = PortalShopRouteImport.update({
+  id: '/shop',
+  path: '/shop',
+  getParentRoute: () => PortalRouteRoute,
+} as any)
 const PortalVoucherRoute = PortalVoucherRouteImport.update({
   id: '/voucher',
   path: '/voucher',
@@ -215,6 +229,16 @@ const ApiHwEntryRouterIdRoute = ApiHwEntryRouterIdRouteImport.update({
   path: '/api/hw/entry/$routerId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShopDeviceNextRoute = ApiShopDeviceNextRouteImport.update({
+  id: '/api/shop/device/next',
+  path: '/api/shop/device/next',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShopDeviceResultRoute = ApiShopDeviceResultRouteImport.update({
+  id: '/api/shop/device/result',
+  path: '/api/shop/device/result',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHwWdRouterIdSplatRoute = ApiHwWdRouterIdSplatRouteImport.update({
   id: '/api/hw/wd/$routerId/$',
   path: '/api/hw/wd/$routerId/$',
@@ -236,6 +260,7 @@ export interface FileRoutesByFullPath {
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shop': typeof AdminShopRoute
   '/admin/vouchers': typeof AdminVouchersRoute
   '/portal/account': typeof PortalAccountRoute
   '/portal/add-device': typeof PortalAddDeviceRoute
@@ -247,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/portal/payment-status': typeof PortalPaymentStatusRoute
   '/portal/recover': typeof PortalRecoverRoute
   '/portal/rewards': typeof PortalRewardsRoute
+  '/portal/shop': typeof PortalShopRoute
   '/portal/voucher': typeof PortalVoucherRoute
   '/admin/': typeof AdminIndexRoute
   '/portal/': typeof PortalIndexRoute
@@ -256,6 +282,8 @@ export interface FileRoutesByFullPath {
   '/api/pay/callback': typeof ApiPayCallbackRoute
   '/portal/legal/$doc': typeof PortalLegalDocRoute
   '/api/hw/entry/$routerId': typeof ApiHwEntryRouterIdRoute
+  '/api/shop/device/next': typeof ApiShopDeviceNextRoute
+  '/api/shop/device/result': typeof ApiShopDeviceResultRoute
   '/api/hw/wd/$routerId/$': typeof ApiHwWdRouterIdSplatRoute
 }
 export interface FileRoutesByTo {
@@ -271,6 +299,7 @@ export interface FileRoutesByTo {
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shop': typeof AdminShopRoute
   '/admin/vouchers': typeof AdminVouchersRoute
   '/portal/account': typeof PortalAccountRoute
   '/portal/add-device': typeof PortalAddDeviceRoute
@@ -282,6 +311,7 @@ export interface FileRoutesByTo {
   '/portal/payment-status': typeof PortalPaymentStatusRoute
   '/portal/recover': typeof PortalRecoverRoute
   '/portal/rewards': typeof PortalRewardsRoute
+  '/portal/shop': typeof PortalShopRoute
   '/portal/voucher': typeof PortalVoucherRoute
   '/admin': typeof AdminIndexRoute
   '/portal': typeof PortalIndexRoute
@@ -291,6 +321,8 @@ export interface FileRoutesByTo {
   '/api/pay/callback': typeof ApiPayCallbackRoute
   '/portal/legal/$doc': typeof PortalLegalDocRoute
   '/api/hw/entry/$routerId': typeof ApiHwEntryRouterIdRoute
+  '/api/shop/device/next': typeof ApiShopDeviceNextRoute
+  '/api/shop/device/result': typeof ApiShopDeviceResultRoute
   '/api/hw/wd/$routerId/$': typeof ApiHwWdRouterIdSplatRoute
 }
 export interface FileRoutesById {
@@ -309,6 +341,7 @@ export interface FileRoutesById {
   '/admin/payments': typeof AdminPaymentsRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shop': typeof AdminShopRoute
   '/admin/vouchers': typeof AdminVouchersRoute
   '/portal/account': typeof PortalAccountRoute
   '/portal/add-device': typeof PortalAddDeviceRoute
@@ -320,6 +353,7 @@ export interface FileRoutesById {
   '/portal/payment-status': typeof PortalPaymentStatusRoute
   '/portal/recover': typeof PortalRecoverRoute
   '/portal/rewards': typeof PortalRewardsRoute
+  '/portal/shop': typeof PortalShopRoute
   '/portal/voucher': typeof PortalVoucherRoute
   '/admin/': typeof AdminIndexRoute
   '/portal/': typeof PortalIndexRoute
@@ -329,6 +363,8 @@ export interface FileRoutesById {
   '/api/pay/callback': typeof ApiPayCallbackRoute
   '/portal/legal/$doc': typeof PortalLegalDocRoute
   '/api/hw/entry/$routerId': typeof ApiHwEntryRouterIdRoute
+  '/api/shop/device/next': typeof ApiShopDeviceNextRoute
+  '/api/shop/device/result': typeof ApiShopDeviceResultRoute
   '/api/hw/wd/$routerId/$': typeof ApiHwWdRouterIdSplatRoute
 }
 export interface FileRouteTypes {
@@ -348,6 +384,7 @@ export interface FileRouteTypes {
     | '/admin/payments'
     | '/admin/reports'
     | '/admin/settings'
+    | '/admin/shop'
     | '/admin/vouchers'
     | '/portal/account'
     | '/portal/add-device'
@@ -359,6 +396,7 @@ export interface FileRouteTypes {
     | '/portal/payment-status'
     | '/portal/recover'
     | '/portal/rewards'
+    | '/portal/shop'
     | '/portal/voucher'
     | '/admin/'
     | '/portal/'
@@ -368,6 +406,8 @@ export interface FileRouteTypes {
     | '/api/pay/callback'
     | '/portal/legal/$doc'
     | '/api/hw/entry/$routerId'
+    | '/api/shop/device/next'
+    | '/api/shop/device/result'
     | '/api/hw/wd/$routerId/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -383,6 +423,7 @@ export interface FileRouteTypes {
     | '/admin/payments'
     | '/admin/reports'
     | '/admin/settings'
+    | '/admin/shop'
     | '/admin/vouchers'
     | '/portal/account'
     | '/portal/add-device'
@@ -394,6 +435,7 @@ export interface FileRouteTypes {
     | '/portal/payment-status'
     | '/portal/recover'
     | '/portal/rewards'
+    | '/portal/shop'
     | '/portal/voucher'
     | '/admin'
     | '/portal'
@@ -403,6 +445,8 @@ export interface FileRouteTypes {
     | '/api/pay/callback'
     | '/portal/legal/$doc'
     | '/api/hw/entry/$routerId'
+    | '/api/shop/device/next'
+    | '/api/shop/device/result'
     | '/api/hw/wd/$routerId/$'
   id:
     | '__root__'
@@ -420,6 +464,7 @@ export interface FileRouteTypes {
     | '/admin/payments'
     | '/admin/reports'
     | '/admin/settings'
+    | '/admin/shop'
     | '/admin/vouchers'
     | '/portal/account'
     | '/portal/add-device'
@@ -431,6 +476,7 @@ export interface FileRouteTypes {
     | '/portal/payment-status'
     | '/portal/recover'
     | '/portal/rewards'
+    | '/portal/shop'
     | '/portal/voucher'
     | '/admin/'
     | '/portal/'
@@ -440,6 +486,8 @@ export interface FileRouteTypes {
     | '/api/pay/callback'
     | '/portal/legal/$doc'
     | '/api/hw/entry/$routerId'
+    | '/api/shop/device/next'
+    | '/api/shop/device/result'
     | '/api/hw/wd/$routerId/$'
   fileRoutesById: FileRoutesById
 }
@@ -453,6 +501,8 @@ export interface RootRouteChildren {
   ApiMpesaCallbackRoute: typeof ApiMpesaCallbackRoute
   ApiPayCallbackRoute: typeof ApiPayCallbackRoute
   ApiHwEntryRouterIdRoute: typeof ApiHwEntryRouterIdRoute
+  ApiShopDeviceNextRoute: typeof ApiShopDeviceNextRoute
+  ApiShopDeviceResultRoute: typeof ApiShopDeviceResultRoute
   ApiHwWdRouterIdSplatRoute: typeof ApiHwWdRouterIdSplatRoute
 }
 
@@ -563,6 +613,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/shop': {
+      id: '/admin/shop'
+      path: '/shop'
+      fullPath: '/admin/shop'
+      preLoaderRoute: typeof AdminShopRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/vouchers': {
       id: '/admin/vouchers'
       path: '/vouchers'
@@ -647,6 +704,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalRewardsRouteImport
       parentRoute: typeof PortalRouteRoute
     }
+    '/portal/shop': {
+      id: '/portal/shop'
+      path: '/shop'
+      fullPath: '/portal/shop'
+      preLoaderRoute: typeof PortalShopRouteImport
+      parentRoute: typeof PortalRouteRoute
+    }
     '/portal/voucher': {
       id: '/portal/voucher'
       path: '/voucher'
@@ -696,6 +760,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHwEntryRouterIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shop/device/next': {
+      id: '/api/shop/device/next'
+      path: '/api/shop/device/next'
+      fullPath: '/api/shop/device/next'
+      preLoaderRoute: typeof ApiShopDeviceNextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shop/device/result': {
+      id: '/api/shop/device/result'
+      path: '/api/shop/device/result'
+      fullPath: '/api/shop/device/result'
+      preLoaderRoute: typeof ApiShopDeviceResultRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/hw/wd/$routerId/$': {
       id: '/api/hw/wd/$routerId/$'
       path: '/api/hw/wd/$routerId/$'
@@ -717,6 +795,7 @@ interface AdminRouteRouteChildren {
   AdminPaymentsRoute: typeof AdminPaymentsRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminShopRoute: typeof AdminShopRoute
   AdminVouchersRoute: typeof AdminVouchersRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
@@ -732,6 +811,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminPaymentsRoute: AdminPaymentsRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
+  AdminShopRoute: AdminShopRoute,
   AdminVouchersRoute: AdminVouchersRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
@@ -751,6 +831,7 @@ interface PortalRouteRouteChildren {
   PortalPaymentStatusRoute: typeof PortalPaymentStatusRoute
   PortalRecoverRoute: typeof PortalRecoverRoute
   PortalRewardsRoute: typeof PortalRewardsRoute
+  PortalShopRoute: typeof PortalShopRoute
   PortalVoucherRoute: typeof PortalVoucherRoute
   PortalIndexRoute: typeof PortalIndexRoute
   PortalLegalDocRoute: typeof PortalLegalDocRoute
@@ -767,6 +848,7 @@ const PortalRouteRouteChildren: PortalRouteRouteChildren = {
   PortalPaymentStatusRoute: PortalPaymentStatusRoute,
   PortalRecoverRoute: PortalRecoverRoute,
   PortalRewardsRoute: PortalRewardsRoute,
+  PortalShopRoute: PortalShopRoute,
   PortalVoucherRoute: PortalVoucherRoute,
   PortalIndexRoute: PortalIndexRoute,
   PortalLegalDocRoute: PortalLegalDocRoute,
@@ -786,6 +868,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMpesaCallbackRoute: ApiMpesaCallbackRoute,
   ApiPayCallbackRoute: ApiPayCallbackRoute,
   ApiHwEntryRouterIdRoute: ApiHwEntryRouterIdRoute,
+  ApiShopDeviceNextRoute: ApiShopDeviceNextRoute,
+  ApiShopDeviceResultRoute: ApiShopDeviceResultRoute,
   ApiHwWdRouterIdSplatRoute: ApiHwWdRouterIdSplatRoute,
 }
 export const routeTree = rootRouteImport

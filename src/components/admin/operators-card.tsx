@@ -10,6 +10,7 @@ import {
   createOperatorAdmin,
   deleteOperatorAdmin,
   listOperatorsAdmin,
+  listSites,
   updateOperatorAdmin,
 } from "@/lib/fn/admin";
 
@@ -27,8 +28,11 @@ export function OperatorsCard() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"OWNER" | "OPERATOR">("OPERATOR");
+  const [siteId, setSiteId] = useState("");
+  const sitesQ = useQuery({ queryKey: ["sites"], queryFn: () => listSites(), staleTime: 60_000 });
+  const sites = sitesQ.data ?? [];
   const create = useMutation({
-    mutationFn: () => createOperatorAdmin({ data: { name, phone, password, role } }),
+    mutationFn: () => createOperatorAdmin({ data: { name, phone, password, role, siteId: role === "OPERATOR" ? siteId : undefined } }),
     onSuccess: (res) => {
       if (!res.ok) return void toast.error(res.error);
       toast.success(res.first ? "Owner account created. You're now signed in with it." : "Account added.");
@@ -40,7 +44,7 @@ export function OperatorsCard() {
   });
 
   const update = useMutation({
-    mutationFn: (v: { id: string; name?: string; phone?: string; role?: "OWNER" | "OPERATOR"; status?: "ACTIVE" | "DISABLED"; newPassword?: string }) => updateOperatorAdmin({ data: v }),
+    mutationFn: (v: { id: string; name?: string; phone?: string; role?: "OWNER" | "OPERATOR"; status?: "ACTIVE" | "DISABLED"; siteId?: string | null; newPassword?: string }) => updateOperatorAdmin({ data: v }),
     onSuccess: (res) => (res.ok ? (toast.success("Saved."), refresh()) : toast.error(res.error)),
     onError: () => toast.error("Could not save."),
   });
@@ -97,11 +101,24 @@ export function OperatorsCard() {
                         {o.name} {me?.id === o.id ? <span className="text-xs text-subtle">(you)</span> : null}
                       </p>
                       <p className="text-xs text-muted">
-                        {o.phone} · {o.role === "OWNER" ? "Owner" : "Operator"} · {o.status === "ACTIVE" ? "Active" : "Disabled"}
+                        {o.phone} · {o.role === "OWNER" ? "Owner · all sites" : `Operator · ${o.siteName ?? "no site"}`} · {o.status === "ACTIVE" ? "Active" : "Disabled"}
                         {o.lastLoginAt ? ` · last in ${new Date(o.lastLoginAt).toLocaleDateString()}` : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
+                      {o.role === "OPERATOR" ? (
+                        <select
+                          aria-label="Site"
+                          className="h-8 rounded-md border border-border bg-raised px-2 text-xs"
+                          value={o.siteId ?? ""}
+                          onChange={(e) => update.mutate({ id: o.id, siteId: e.target.value })}
+                        >
+                          {!o.siteId ? <option value="">Choose site…</option> : null}
+                          {sites.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      ) : null}
                       <Button type="button" size="sm" variant="secondary" onClick={() => { setResetFor(resetFor === o.id ? null : o.id); setTempPw(""); }}>
                         Reset password
                       </Button>
@@ -110,9 +127,11 @@ export function OperatorsCard() {
                           <Button type="button" size="sm" variant="secondary" onClick={() => update.mutate({ id: o.id, status: o.status === "ACTIVE" ? "DISABLED" : "ACTIVE" })}>
                             {o.status === "ACTIVE" ? "Disable" : "Enable"}
                           </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => update.mutate({ id: o.id, role: o.role === "OWNER" ? "OPERATOR" : "OWNER" })}>
-                            Make {o.role === "OWNER" ? "operator" : "owner"}
-                          </Button>
+                          {o.role === "OPERATOR" ? (
+                            <Button type="button" size="sm" variant="secondary" onClick={() => update.mutate({ id: o.id, role: "OWNER" })}>
+                              Make owner
+                            </Button>
+                          ) : null}
                           <Button
                             type="button"
                             size="sm"
@@ -157,17 +176,28 @@ export function OperatorsCard() {
                 <Label htmlFor="op-pass">Password (6+ characters)</Label>
                 <Input id="op-pass" className={field} type="text" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
               </div>
+              {operators.length > 0 && role === "OPERATOR" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="op-site">Site (they only see this site)</Label>
+                  <select id="op-site" className="h-10 w-full rounded-md border border-border bg-raised px-3 text-sm" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+                    <option value="">Choose a site…</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               {operators.length > 0 ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="op-role">Role</Label>
                   <select id="op-role" className="h-10 w-full rounded-md border border-border bg-raised px-3 text-sm" value={role} onChange={(e) => setRole(e.target.value as "OWNER" | "OPERATOR")}>
-                    <option value="OPERATOR">Operator — full console, can't manage accounts</option>
-                    <option value="OWNER">Owner — can also manage accounts</option>
+                    <option value="OPERATOR">Operator — one site only</option>
+                    <option value="OWNER">Owner — all sites, settings and accounts</option>
                   </select>
                 </div>
               ) : null}
             </div>
-            <Button type="button" disabled={create.isPending || !name || !phone || password.length < 6} onClick={() => create.mutate()}>
+            <Button type="button" disabled={create.isPending || !name || !phone || password.length < 6 || (operators.length > 0 && role === "OPERATOR" && !siteId)} onClick={() => create.mutate()}>
               {create.isPending ? "Saving…" : operators.length === 0 ? "Create owner account" : "Add"}
             </Button>
             <p className="text-xs text-subtle">Tell the person their password in person; they can change it themselves below or reset it by SMS.</p>

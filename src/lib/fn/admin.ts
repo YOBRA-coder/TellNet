@@ -71,11 +71,49 @@ import { processActivationRetries } from "../services/callback.server";
 const siteParam = z.object({ siteId: z.string().optional() }).optional();
 const normSite = (v?: string | null) => (v && v !== "ALL" ? v : null);
 
+/**
+ * Site-limited operators (role OPERATOR) may only see and act on their own site; owners see every site.
+ * operatorLock() = the site id they are limited to, or null for owners. An operator with no site sees nothing.
+ */
+async function operatorLock(): Promise<string | null> {
+  const { getOperatorIdentity } = await import("@/lib/auth/operator-session.server");
+  const who = await getOperatorIdentity();
+  if (!who || who.owner) return null;
+  return who.siteId ?? "__none__";
+}
+/** The site to filter by: the operator's own site if limited, otherwise whatever the page asked for. */
+async function scopedSite(requested?: string | null): Promise<string | null> {
+  return (await operatorLock()) ?? normSite(requested);
+}
+const NOT_YOURS = "That belongs to another site.";
+async function customerInScope(customerId: string): Promise<boolean> {
+  const lock = await operatorLock();
+  if (!lock) return true;
+  const sql = await getSql();
+  const r = (await sql<{ s: string }>`select coalesce(site_id, 'site_default') as s from customers where id = ${customerId} limit 1`)[0];
+  return Boolean(r) && r.s === lock;
+}
+async function paymentInScope(paymentId: string): Promise<boolean> {
+  const lock = await operatorLock();
+  if (!lock) return true;
+  const sql = await getSql();
+  const r = (await sql<{ s: string }>`select coalesce(site_id, 'site_default') as s from payments where id = ${paymentId} limit 1`)[0];
+  return Boolean(r) && r.s === lock;
+}
+async function sessionInScope(sessionId: string): Promise<boolean> {
+  const lock = await operatorLock();
+  if (!lock) return true;
+  const sql = await getSql();
+  const r = (await sql<{ s: string }>`
+    select coalesce(c.site_id, 'site_default') as s from sessions x join customers c on c.id = x.customer_id where x.id = ${sessionId} limit 1`)[0];
+  return Boolean(r) && r.s === lock;
+}
+
 export const getDashboard = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => siteParam.parse(data))
   .handler(async ({ data: input }) => {
-    const site = normSite(input?.siteId);
+    const site = await scopedSite(input?.siteId);
     // Non-blocking maintenance — do not delay first paint
     void expireDuePackages().catch(() => {});
     void tickLiveUsage().catch(() => {});
@@ -139,7 +177,7 @@ export const getDashboard = createServerFn({ method: "POST" })
         sql<SqlRow>`select * from mikrotiks
           where ${site}::text is null or coalesce(site_id, 'site_default') = ${site}
           order by is_primary desc, created_at`,
-        sql<SqlRow>`select * from network_events order by created_at desc limit 8`,
+        site ? Promise.resolve([] as SqlRow[]) : sql<SqlRow>`select * from network_events order by created_at desc limit 8`,
         sql<SqlRow>`
           select p.*, pkg.name as package_name
           from payments p join packages pkg on pkg.id = p.package_id
@@ -246,13 +284,15 @@ export const getDataUsage = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const lock = await operatorLock();
     const rows = await sql<{ down: number; up: number }>`
       select
-        coalesce(sum(bytes_down), 0)::bigint as down,
-        coalesce(sum(bytes_up), 0)::bigint as up
-      from sessions
-      where session_start >= ${data.from}::date
-        and session_start < (${data.to}::date + interval '1 day')
+        coalesce(sum(s.bytes_down), 0)::bigint as down,
+        coalesce(sum(s.bytes_up), 0)::bigint as up
+      from sessions s join customers c on c.id = s.customer_id
+      where s.session_start >= ${data.from}::date
+        and s.session_start < (${data.to}::date + interval '1 day')
+        and (${lock}::text is null or coalesce(c.site_id, 'site_default') = ${lock})
     `;
     const r = rows[0];
     return {
@@ -266,6 +306,7 @@ export const listCustomersAdmin = createServerFn({ method: "GET" })
   .handler(async () => {
     await expireDuePackages();
     const sql = await getSql();
+    const lock = await operatorLock();
     const rows = await sql<SqlRow>`
       select
         c.id, c.phone, c.status, c.created_at, c.site_id,
@@ -290,6 +331,7 @@ export const listCustomersAdmin = createServerFn({ method: "GET" })
       left join packages pkg on pkg.id = cp.package_id
       left join payments p on p.id = cp.payment_id
       where c.deleted_at is null
+        and (${lock}::text is null or coalesce(c.site_id, 'site_default') = ${lock})
       order by c.created_at desc
     `;
     return rows.map((row) => ({
@@ -351,6 +393,7 @@ export const getCustomerHistoryAdmin = createServerFn({ method: "POST" })
       customerId = found[0]?.id ?? null;
     }
     if (!customerId) return null;
+    if (!(await customerInScope(customerId))) return null;
 
     const customerRows = await sql<SqlRow>`
       select * from customers where id = ${customerId} limit 1
@@ -512,6 +555,7 @@ export const customerAction = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    if (!(await customerInScope(data.customerId))) return { ok: false as const, error: NOT_YOURS };
     const sql = await getSql();
     const exists = await sql<{ id: string }>`
       select id from customers where id = ${data.customerId} limit 1
@@ -753,6 +797,7 @@ export const savePackage = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const id = data.id ?? nid("pkg");
     const durationKind =
@@ -810,6 +855,7 @@ export const deletePackage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     await sql`update packages set status = 'INACTIVE', updated_at = now() where id = ${data.id}`;
     return { ok: true as const };
@@ -832,7 +878,7 @@ export const listPaymentsAdmin = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const sql = await getSql();
     const ps = await getPeriodStarts();
-    const site = normSite(data.siteId);
+    const site = await scopedSite(data.siteId);
     // Phone search: "07…", "7…", "254…" and "+254…" all work. Numbers are stored
     // as 2547XXXXXXXX, so a leading 0 is turned into 254 and matched from the
     // START of the number; anything with letters is searched as an M-Pesa code.
@@ -880,6 +926,7 @@ export const retryPaymentActivation = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ paymentId: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    if (!(await paymentInScope(data.paymentId))) return { ok: false as const, error: NOT_YOURS };
     const result = await activateFromPayment(data.paymentId);
     return result.ok
       ? { ok: true as const }
@@ -892,6 +939,7 @@ export const listLiveUsers = createServerFn({ method: "GET" })
     await expireDuePackages();
     await tickLiveUsage();
     const sql = await getSql();
+    const lock = await operatorLock();
     const rows = await sql<SqlRow>`
       select
         s.id as session_id, s.customer_id, c.phone, c.status as customer_status,
@@ -914,6 +962,7 @@ export const listLiveUsers = createServerFn({ method: "GET" })
       -- site: the vendor site if there is one, else where the payment was made
       left join sites st on st.id = coalesce(hr.site_id, pay.site_id, c.site_id, 'site_default')
       where s.status = 'ACTIVE'
+        and (${lock}::text is null or coalesce(hr.site_id, pay.site_id, c.site_id, 'site_default') = ${lock})
       order by s.session_start desc
     `;
     return rows.map(mapLiveUser);
@@ -923,6 +972,7 @@ export const kickLiveUser = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ sessionId: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    if (!(await sessionInScope(data.sessionId))) return { ok: false as const };
     await disconnectSession(data.sessionId);
     return { ok: true as const };
   });
@@ -953,7 +1003,7 @@ export const getReports = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data: input }) => {
-    const site = normSite(input?.siteId);
+    const site = await scopedSite(input?.siteId);
     const days = input?.days ?? 14;
     const sql = await getSql();
     const ps = await getPeriodStarts();
@@ -1133,6 +1183,7 @@ export const getReports = createServerFn({ method: "POST" })
 export const checkMpesaSetupAdmin = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const { checkMpesaSetup } = await import("@/lib/services/mpesa.server");
     return checkMpesaSetup();
   });
@@ -1141,6 +1192,7 @@ export const sendMpesaTestPromptAdmin = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ phone: z.string().min(9).max(20) }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     try {
       const { sendMpesaTestPrompt } = await import("@/lib/services/mpesa.server");
       await sendMpesaTestPrompt(data.phone, 1);
@@ -1158,6 +1210,7 @@ export const sendSmsTestAdmin = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ phone: z.string().min(9).max(20) }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const phone = normalizeKenyanPhone(data.phone);
     if (!phone) return { ok: false as const, error: "Enter a valid Kenyan phone number." };
     const { sendSms } = await import("@/lib/services/sms.server");
@@ -1171,15 +1224,16 @@ export const getNetwork = createServerFn({ method: "GET" })
   .handler(async () => {
     void expireDuePackages().catch(() => {});
     const sql = await getSql();
+    const lock = await operatorLock();
     const [settings, router, ispsRaw, eventsRaw, mikrotiksRaw, online, sitesRaw] =
       await Promise.all([
         getSettings(),
         pingRouter().catch(() => ({ reachable: false, mode: "unconfigured" as const })),
-        sql<SqlRow>`select * from isps order by sort_order`,
-        sql<SqlRow>`select * from network_events order by created_at desc limit 20`,
-        sql<SqlRow>`select * from mikrotiks order by is_primary desc, created_at`,
-        sql<{ n: number }>`select count(*)::int as n from sessions where status = 'ACTIVE'`,
-        sql<SqlRow>`select * from sites order by name`,
+        sql<SqlRow>`select * from isps where ${lock}::text is null or coalesce(site_id, 'site_default') = ${lock} order by sort_order`,
+        lock ? Promise.resolve([] as SqlRow[]) : sql<SqlRow>`select * from network_events order by created_at desc limit 20`,
+        sql<SqlRow>`select * from mikrotiks where ${lock}::text is null or coalesce(site_id, 'site_default') = ${lock} order by is_primary desc, created_at`,
+        sql<{ n: number }>`select count(*)::int as n from sessions s join customers c on c.id = s.customer_id where s.status = 'ACTIVE' and (${lock}::text is null or coalesce(c.site_id, 'site_default') = ${lock})`,
+        sql<SqlRow>`select * from sites where ${lock}::text is null or id = ${lock} order by name`,
       ]);
     const hwCounts = await hwActiveDeviceCounts().catch(() => new Map<string, number>());
     return {
@@ -1204,6 +1258,7 @@ export const setIspStatus = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const before = await sql<{ name: string; status: string; auto_status: boolean; mikrotik_id: string | null; interface_name: string | null }>`
       select name, status, auto_status, mikrotik_id, interface_name from isps where id = ${data.id} limit 1
@@ -1228,7 +1283,10 @@ export const setIspStatus = createServerFn({ method: "POST" })
 
 export const getSettingsAdmin = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async () => getSettings());
+  .handler(async () => {
+    await ownerOnly();
+    return getSettings();
+  });
 
 export const saveSettingsAdmin = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1282,6 +1340,7 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     await sql`
       update settings set
@@ -1377,6 +1436,7 @@ export const saveSettingsAdmin = createServerFn({ method: "POST" })
 export const getCapacityStatus = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const sql = await getSql();
     const cap = await getEffectiveCapacity();
     const fastest = (
@@ -1390,6 +1450,7 @@ export const getCapacityStatus = createServerFn({ method: "GET" })
 export const getRadiusStatus = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const cfg = await getRadiusConfig();
     return {
       enabled: cfg.enabled,
@@ -1406,6 +1467,7 @@ export const getRadiusStatus = createServerFn({ method: "GET" })
 export const applyRadiusToRouters = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const cfg = await getRadiusConfig();
     if (cfg.enabled && !cfg.secret) {
       return { ok: false as const, error: "Save a shared secret first." };
@@ -1449,6 +1511,7 @@ export const applyRadiusToRouters = createServerFn({ method: "POST" })
 export const checkRadiusRouters = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const cfg = await getRadiusConfig();
     const sql = await getSql();
     const routers = await sql<{ id: string; name: string }>`
@@ -1585,6 +1648,7 @@ export const saveMikroTik = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => mikrotikInput.parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const hardwareType: HardwareType = data.hardwareType;
     const isMikroTik = hardwareType === "mikrotik";
@@ -1751,6 +1815,7 @@ export const testMikroTik = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
 
     // Omada / Ruijie: tested by their own driver (controller login / gateway heartbeat).
@@ -1864,6 +1929,7 @@ export const testMikroTik = createServerFn({ method: "POST" })
 export const refreshMikroTiks = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const sql = await getSql();
     const rows = await sql<{
       id: string;
@@ -1908,6 +1974,7 @@ export const refreshMikroTiks = createServerFn({ method: "POST" })
 export const resumeActivePackages = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const result = await resumeEligiblePackages("manual");
     return { ...result, ok: true as const };
   });
@@ -1916,6 +1983,7 @@ export const setPrimaryMikroTik = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const row = (
       await sql<{ name: string; hardware_type: string }>`select name, hardware_type from mikrotiks where id = ${data.id} limit 1`
@@ -1941,6 +2009,7 @@ export const deleteMikroTik = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const row = (
       await sql<{ name: string; is_primary: boolean }>`
@@ -1997,6 +2066,7 @@ export const saveIsp = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const id = data.id ?? nid("isp");
     const maxSort = await sql<{ n: number }>`
@@ -2048,6 +2118,7 @@ export const deleteIsp = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const row = (
       await sql<{ name: string }>`select name from isps where id = ${data.id} limit 1`
@@ -2070,6 +2141,7 @@ export const applyCamouflage = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const row = (
       await sql<{ name: string }>`
@@ -2098,7 +2170,8 @@ export const listSites = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
     const sql = await getSql();
-    return (await sql<SqlRow>`select * from sites order by name`).map(mapSite);
+    const lock = await operatorLock();
+    return (await sql<SqlRow>`select * from sites where ${lock}::text is null or id = ${lock} order by name`).map(mapSite);
   });
 
 export const saveSite = createServerFn({ method: "POST" })
@@ -2115,6 +2188,7 @@ export const saveSite = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const id = data.id ?? `site_${Date.now().toString(36)}`;
     const status = data.status ?? "ACTIVE";
@@ -2143,6 +2217,7 @@ export const setSiteStatus = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     if (data.id === "site_default" && data.status === "INACTIVE") {
       return { ok: false as const, error: "The main site can't be deactivated." };
@@ -2166,6 +2241,7 @@ export const setSiteStatus = createServerFn({ method: "POST" })
 export const getSiteMap = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
+    await ownerOnly();
     const sql = await getSql();
     const [sites, routers, isps, packages] = await Promise.all([
       sql<SqlRow>`select * from sites order by (id = 'site_default') desc, name`,
@@ -2459,7 +2535,7 @@ export const getNetworkMap = createServerFn({ method: "POST" })
         }).catch(() => {});
       }
     }
-    return buildNetworkMap(normSite(data.siteId), data.days ?? 30);
+    return buildNetworkMap(await scopedSite(data.siteId), data.days ?? 30);
   });
 
 export const saveAccessPoint = createServerFn({ method: "POST" })
@@ -2481,6 +2557,7 @@ export const saveAccessPoint = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     const ip = data.ip?.trim() || null;
     const mac = data.mac?.trim().toUpperCase() || null;
@@ -2518,6 +2595,7 @@ export const deleteAccessPoint = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     await sql`delete from access_points where id = ${data.id}`;
     return { ok: true as const };
@@ -2539,7 +2617,7 @@ export const listVouchersAdmin = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
-    const res = await listVouchersPage({ ...data, pageSize: 50 });
+    const res = await listVouchersPage({ ...data, pageSize: 50, siteId: await operatorLock() });
     const cfg = (
       await sql<{ d: number | null; name: string | null; currency: string | null }>`
         select voucher_auto_clean_days as d, hotspot_name as name, currency from settings where id = 'default' limit 1
@@ -2597,7 +2675,7 @@ export const generateVouchersAdmin = createServerFn({ method: "POST" })
       packageId: data.packageId,
       count: data.count,
       batchLabel: data.batchLabel?.trim() || undefined,
-      siteId: data.siteId,
+      siteId: (await operatorLock()) ?? data.siteId,
       expiresAt: data.validDays
         ? new Date(Date.now() + data.validDays * 86_400_000).toISOString()
         : undefined,
@@ -2617,7 +2695,7 @@ export const deleteVouchersAdmin = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }) => {
-    const deleted = await deleteVouchers(data);
+    const deleted = await deleteVouchers({ ...data, siteId: await operatorLock() });
     return { ok: true as const, deleted };
   });
 
@@ -2627,6 +2705,7 @@ export const setVoucherAutoClean = createServerFn({ method: "POST" })
     z.object({ days: z.number().int().min(0).max(365) }).parse(data),
   )
   .handler(async ({ data }) => {
+    await ownerOnly();
     const sql = await getSql();
     await sql`update settings set voucher_auto_clean_days = ${data.days}, updated_at = now() where id = 'default'`;
     const { autoCleanVouchers } = await import("@/lib/services/vouchers.server");
@@ -2641,7 +2720,7 @@ export const getVouchersForPrint = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
-    const rows = await vouchersForPrint(data);
+    const rows = await vouchersForPrint({ ...data, siteId: await operatorLock() });
     const cfg = (
       await sql<{ name: string | null; currency: string | null }>`
         select hotspot_name as name, currency from settings where id = 'default' limit 1
@@ -2667,6 +2746,7 @@ export const listActivationQueue = createServerFn({ method: "GET" })
   .handler(async () => {
     await processActivationRetries(5);
     const sql = await getSql();
+    const lock = await operatorLock();
     return sql<{
       id: string;
       phone: string;
@@ -2686,6 +2766,7 @@ export const listActivationQueue = createServerFn({ method: "GET" })
       join packages pkg on pkg.id = p.package_id
       where p.status = 'SUCCESS'
         and p.activation_status in ('ACTIVATION_FAILED', 'NOT_ACTIVATED')
+        and (${lock}::text is null or coalesce(p.site_id, 'site_default') = ${lock})
       order by p.updated_at desc
       limit 50
     `;
@@ -2695,6 +2776,7 @@ export const retryActivationAdmin = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((data: unknown) => z.object({ paymentId: z.string() }).parse(data))
   .handler(async ({ data }) => {
+    if (!(await paymentInScope(data.paymentId))) return { ok: false as const, error: NOT_YOURS };
     const result = await activateFromPayment(data.paymentId);
     return result.ok
       ? { ok: true as const }
@@ -2727,6 +2809,7 @@ export const createOperatorAdmin = createServerFn({ method: "POST" })
         phone: z.string().min(9).max(20),
         password: z.string().min(6).max(64),
         role: z.enum(["OWNER", "OPERATOR"]),
+        siteId: z.string().max(80).optional(),
       })
       .parse(data),
   )
@@ -2755,6 +2838,7 @@ export const updateOperatorAdmin = createServerFn({ method: "POST" })
         phone: z.string().min(9).max(20).optional(),
         role: z.enum(["OWNER", "OPERATOR"]).optional(),
         status: z.enum(["ACTIVE", "DISABLED"]).optional(),
+        siteId: z.string().max(80).nullable().optional(),
         newPassword: z.string().min(6).max(64).optional(),
       })
       .parse(data),
@@ -2791,4 +2875,129 @@ export const changeMyOperatorPassword = createServerFn({ method: "POST" })
     if (!me?.id) return { ok: false as const, error: "Create your own account first (Settings → Operators)." };
     const { changeOwnPassword } = await import("@/lib/services/operators.server");
     return changeOwnPassword(me.id, data.current, data.next);
+  });
+
+// --- Airtime / data shop (orders are scoped to the operator's site; setup is owner only) ------------------
+
+const productSchema = z.object({
+  id: z.string().optional(),
+  kind: z.enum(["DATA", "MINUTES", "SMS", "AIRTIME"]),
+  name: z.string().min(2).max(80),
+  price: z.number().int().min(1).max(100000).nullable().optional(),
+  minAmount: z.number().int().min(1).max(100000).nullable().optional(),
+  maxAmount: z.number().int().min(1).max(100000).nullable().optional(),
+  ussdCode: z.string().max(200).nullable().optional(),
+  providerCode: z.string().max(120).nullable().optional(),
+  okoaOk: z.boolean().optional(),
+  notes: z.string().max(200).nullable().optional(),
+  siteId: z.string().max(80).nullable().optional(),
+  sortOrder: z.number().int().min(0).max(9999).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+export const getShopOrdersAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ status: z.enum(["ALL", "NEEDS_ATTENTION", "PAID", "DONE"]).optional() }).parse(data ?? {}))
+  .handler(async ({ data }) => {
+    const { listOrders, shopSummary, getShopSettings } = await import("@/lib/services/shop.server");
+    const lock = await operatorLock();
+    const cfg = await getShopSettings();
+    return {
+      enabled: cfg.enabled,
+      summary: await shopSummary(lock),
+      orders: await listOrders({ siteId: lock, status: data.status && data.status !== "ALL" ? data.status : undefined }),
+    };
+  });
+
+export const getShopConfigAdmin = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    await ownerOnly();
+    const { getShopSettings, listProducts, listDevices } = await import("@/lib/services/shop.server");
+    return { settings: await getShopSettings(), products: await listProducts(), devices: await listDevices() };
+  });
+
+export const saveShopSettingsAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z
+      .object({
+        enabled: z.boolean().optional(),
+        title: z.string().max(80).nullable().optional(),
+        notice: z.string().max(300).nullable().optional(),
+        fulfilment: z.enum(["ANDROID", "API"]).optional(),
+        maxAttempts: z.number().int().min(1).max(10).optional(),
+        paymentMode: z.enum(["CURRENT", "CUSTOM"]).optional(),
+        payAccountType: z.enum(["paybill", "till"]).optional(),
+        payShortcode: z.string().max(20).nullable().optional(),
+        payTill: z.string().max(20).nullable().optional(),
+        payPasskey: z.string().max(300).optional(),
+        payKey: z.string().max(300).optional(),
+        paySecret: z.string().max(300).optional(),
+        apiUrl: z.string().max(500).nullable().optional(),
+        apiMethod: z.enum(["POST", "GET"]).optional(),
+        apiContentType: z.enum(["json", "form"]).optional(),
+        apiHeaders: z.string().max(2000).optional(),
+        apiBody: z.string().max(3000).nullable().optional(),
+        apiSuccessPath: z.string().max(100).nullable().optional(),
+        apiSuccessValue: z.string().max(100).nullable().optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    await ownerOnly();
+    const { saveShopSettings } = await import("@/lib/services/shop.server");
+    return saveShopSettings(data);
+  });
+
+export const saveShopProductAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => productSchema.parse(data))
+  .handler(async ({ data }) => {
+    await ownerOnly();
+    const { saveProduct } = await import("@/lib/services/shop.server");
+    return saveProduct(data);
+  });
+
+export const deleteShopProductAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ id: z.string().min(1) }).parse(data))
+  .handler(async ({ data }) => {
+    await ownerOnly();
+    const { deleteProduct } = await import("@/lib/services/shop.server");
+    await deleteProduct(data.id);
+    return { ok: true as const };
+  });
+
+export const createShopDeviceAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ name: z.string().min(1).max(60), siteId: z.string().max(80).nullable().optional() }).parse(data))
+  .handler(async ({ data }) => {
+    await ownerOnly();
+    const { createDevice } = await import("@/lib/services/shop.server");
+    return { ok: true as const, ...(await createDevice(data.name, data.siteId ?? null)) };
+  });
+
+export const deleteShopDeviceAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => z.object({ id: z.string().min(1) }).parse(data))
+  .handler(async ({ data }) => {
+    await ownerOnly();
+    const { deleteDevice } = await import("@/lib/services/shop.server");
+    await deleteDevice(data.id);
+    return { ok: true as const };
+  });
+
+export const shopOrderAction = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((data: unknown) =>
+    z.object({ id: z.string().min(1), action: z.enum(["retry", "refunded", "unrefunded", "delivered"]) }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    const { orderInSite, retryOrder, markRefunded, markDelivered } = await import("@/lib/services/shop.server");
+    if (!(await orderInSite(data.id, await operatorLock()))) return { ok: false as const, error: NOT_YOURS };
+    if (data.action === "retry") await retryOrder(data.id);
+    else if (data.action === "delivered") await markDelivered(data.id);
+    else await markRefunded(data.id, data.action === "refunded");
+    return { ok: true as const };
   });

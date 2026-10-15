@@ -217,6 +217,13 @@ export async function probeAllRouters(): Promise<number> {
   } catch (err) {
     console.error("[ap-usage]", err);
   }
+  // Shop: send queued airtime/data orders to the reseller API; flag orders the phone never confirmed.
+  try {
+    const { shopTick } = await import("./shop.server");
+    await shopTick();
+  } catch (err) {
+    console.error("[shop]", err);
+  }
   // Opening hours: flip routers open/closed at the schedule boundaries.
   try {
     const { applyOperatingHours } = await import("./hours.server");

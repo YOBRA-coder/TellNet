@@ -1,5 +1,5 @@
 import { Navigate, Outlet, createFileRoute, useRouterState } from "@tanstack/react-router";
-import { AdminShell } from "@/components/admin/admin-shell";
+import { AdminShell, OWNER_ONLY_PATHS } from "@/components/admin/admin-shell";
 import { useOperatorSession } from "@/lib/operator";
 
 export const Route = createFileRoute("/admin")({
@@ -8,7 +8,7 @@ export const Route = createFileRoute("/admin")({
 
 function AdminLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { isOperator, isPending } = useOperatorSession();
+  const { isOperator, isPending, isOwner } = useOperatorSession();
   const isLogin = pathname === "/admin/login";
 
   if (isPending) {
@@ -28,6 +28,10 @@ function AdminLayout() {
 
   if (!isOperator) {
     return <Navigate to="/login" search={{ redirect: pathname }} />;
+  }
+
+  if (!isOwner && OWNER_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    return <Navigate to="/admin/dashboard" />;
   }
 
   return (

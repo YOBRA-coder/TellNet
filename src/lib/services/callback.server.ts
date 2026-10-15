@@ -154,6 +154,35 @@ export async function handleMpesaCallback(request: Request): Promise<Response> {
   if (!parsed.checkoutRequestId) {
     return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
   }
+  // Shop (airtime / data) orders have their own table and may use their own till.
+  const { findOrderByCheckout, settleOrderByCheckout, shopPayOverride } = await import("./shop.server");
+  const shopOrder = await findOrderByCheckout(parsed.checkoutRequestId);
+  if (shopOrder) {
+    if (parsed.resultCode === 0 && shopOrder.status === "PENDING" && (await getSettings()).mpesaEnv === "production") {
+      if (parsed.amount != null && Number(parsed.amount) !== shopOrder.amount) {
+        await logEvent("SHOP", `Ignored callback ${parsed.checkoutRequestId}: amount ${parsed.amount} does not match KES ${shopOrder.amount}.`).catch(() => {});
+        return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+      }
+      let confirmed = false;
+      const override = await shopPayOverride();
+      for (let i = 0; i < 3 && !confirmed; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 1500));
+        try {
+          confirmed = (await queryStkStatus(parsed.checkoutRequestId, override)).resultCode === 0;
+        } catch {
+          /* try again, then leave it pending for the customer's status poll */
+        }
+      }
+      if (!confirmed) return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+    }
+    await settleOrderByCheckout({
+      checkoutRequestId: parsed.checkoutRequestId,
+      resultCode: parsed.resultCode,
+      resultDesc: parsed.resultDesc,
+      receipt: parsed.receipt,
+    });
+    return Response.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  }
   // The callback URL is public and the CheckoutRequestID is visible to the paying
   // customer's browser, so on production a POSTed "success" is never taken at face
   // value: the amount must match and Safaricom itself must confirm the result.

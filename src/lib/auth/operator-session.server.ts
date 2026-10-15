@@ -50,6 +50,8 @@ export type OperatorIdentity = {
   name: string;
   phone: string | null;
   owner: boolean;
+  /** operators are limited to this site; null = every site (owners, and the pre-accounts shared session) */
+  siteId: string | null;
 };
 
 export async function getOperatorIdentity(): Promise<OperatorIdentity | null> {
@@ -66,11 +68,11 @@ export async function getOperatorIdentity(): Promise<OperatorIdentity | null> {
   const opId = typeof payload.opId === "string" ? payload.opId : null;
   if (!opId) {
     // Shared-password session: only honoured until the first account is created.
-    return (await countOperators()) === 0 ? { id: null, name: "Operator", phone: null, owner: true } : null;
+    return (await countOperators()) === 0 ? { id: null, name: "Operator", phone: null, owner: true, siteId: null } : null;
   }
   const op = await getOperatorById(opId);
   if (!op || op.status !== "ACTIVE") return null;
-  return { id: op.id, name: op.name, phone: op.phone, owner: op.role === "OWNER" };
+  return { id: op.id, name: op.name, phone: op.phone, owner: op.role === "OWNER", siteId: op.role === "OWNER" ? null : op.siteId };
 }
 
 export async function hasOperatorSession(): Promise<boolean> {

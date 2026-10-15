@@ -23,6 +23,9 @@ export type OperatorRow = {
   name: string;
   phone: string;
   role: "OWNER" | "OPERATOR";
+  /** the one site an operator is limited to; null for owners (all sites) */
+  siteId: string | null;
+  siteName: string | null;
   status: "ACTIVE" | "DISABLED";
   lastLoginAt: string | null;
   createdAt: string;
@@ -52,6 +55,8 @@ function map(r: Row): OperatorRow {
     name: String(r.name),
     phone: String(r.phone),
     role: r.role === "OWNER" ? "OWNER" : "OPERATOR",
+    siteId: r.role === "OWNER" || !r.site_id ? null : String(r.site_id),
+    siteName: r.site_name ? String(r.site_name) : null,
     status: r.status === "DISABLED" ? "DISABLED" : "ACTIVE",
     lastLoginAt: r.last_login_at ? new Date(String(r.last_login_at)).toISOString() : null,
     createdAt: new Date(String(r.created_at)).toISOString(),
@@ -60,12 +65,12 @@ function map(r: Row): OperatorRow {
 
 export async function listOperators(): Promise<OperatorRow[]> {
   const sql = await getSql();
-  return (await sql<Row>`select * from operators order by (role = 'OWNER') desc, created_at`).map(map);
+  return (await sql<Row>`select o.*, s.name as site_name from operators o left join sites s on s.id = o.site_id order by (o.role = 'OWNER') desc, o.created_at`).map(map);
 }
 
 export async function getOperatorById(id: string): Promise<OperatorRow | null> {
   const sql = await getSql();
-  const r = (await sql<Row>`select * from operators where id = ${id} limit 1`)[0];
+  const r = (await sql<Row>`select o.*, s.name as site_name from operators o left join sites s on s.id = o.site_id where o.id = ${id} limit 1`)[0];
   return r ? map(r) : null;
 }
 
@@ -112,6 +117,7 @@ export async function createOperator(input: {
   phone: string;
   password: string;
   role: "OWNER" | "OPERATOR";
+  siteId?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const phone = normalizeKenyanPhone(input.phone);
   if (!phone) return { ok: false, error: "Enter a valid Kenyan phone number." };
@@ -120,21 +126,27 @@ export async function createOperator(input: {
   const name = input.name.trim();
   if (name.length < 2) return { ok: false, error: "Enter a name." };
   const sql = await getSql();
+  let siteId: string | null = null;
+  if (input.role === "OPERATOR") {
+    if (!input.siteId) return { ok: false, error: "Choose the site this operator works at." };
+    if (!(await sql<{ id: string }>`select id from sites where id = ${input.siteId} limit 1`)[0]) return { ok: false, error: "That site does not exist." };
+    siteId = input.siteId;
+  }
   if ((await sql<{ id: string }>`select id from operators where phone = ${phone} limit 1`)[0]) {
     return { ok: false, error: "That phone number already has an account." };
   }
   const { hash, salt } = hashSecret(input.password);
   const id = nid("op");
   await sql`
-    insert into operators (id, name, phone, pw_hash, pw_salt, role)
-    values (${id}, ${name}, ${phone}, ${hash}, ${salt}, ${input.role})`;
+    insert into operators (id, name, phone, pw_hash, pw_salt, role, site_id)
+    values (${id}, ${name}, ${phone}, ${hash}, ${salt}, ${input.role}, ${siteId})`;
   await logEvent("OPERATOR", `Operator account created: ${name} (${maskPhone(phone)}, ${input.role}).`);
   return { ok: true, id };
 }
 
 export async function updateOperator(
   id: string,
-  patch: { name?: string; phone?: string; role?: "OWNER" | "OPERATOR"; status?: "ACTIVE" | "DISABLED" },
+  patch: { name?: string; phone?: string; role?: "OWNER" | "OPERATOR"; status?: "ACTIVE" | "DISABLED"; siteId?: string | null },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const sql = await getSql();
   const cur = await getOperatorById(id);
@@ -155,7 +167,13 @@ export async function updateOperator(
   }
   const name = (patch.name ?? cur.name).trim();
   if (name.length < 2) return { ok: false, error: "Enter a name." };
-  await sql`update operators set name = ${name}, phone = ${phone}, role = ${role}, status = ${status}, updated_at = now() where id = ${id}`;
+  // Owners see every site (no site); operators need exactly one.
+  let siteId: string | null = role === "OWNER" ? null : patch.siteId !== undefined ? patch.siteId : cur.siteId;
+  if (role === "OPERATOR") {
+    if (!siteId) return { ok: false, error: "Choose the site this operator works at." };
+    if (!(await sql<{ id: string }>`select id from sites where id = ${siteId} limit 1`)[0]) return { ok: false, error: "That site does not exist." };
+  }
+  await sql`update operators set name = ${name}, phone = ${phone}, role = ${role}, status = ${status}, site_id = ${siteId}, updated_at = now() where id = ${id}`;
   return { ok: true };
 }
 

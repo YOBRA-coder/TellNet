@@ -1173,3 +1173,58 @@ export const bindHardwareClient = createServerFn({ method: "POST" })
 export const getHardwareHandoff = createServerFn({ method: "POST" })
   .validator((data: unknown) => z.object({ token: z.string().min(8).max(200) }).parse(data))
   .handler(async ({ data }) => ({ url: await takeHandoffUrl(data.token) }));
+
+
+// --- Airtime / data shop ---------------------------------------------------------------------------
+
+export const getShopInfo = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ site: z.string().max(40).optional() }).parse(data ?? {}))
+  .handler(async ({ data }) => {
+    const { shopPublicInfo } = await import("@/lib/services/shop.server");
+    return shopPublicInfo(await siteIdFromSlug(data.site));
+  });
+
+export const createShopOrder = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z
+      .object({
+        productId: z.string().min(1).max(80),
+        amount: z.number().int().min(1).max(100000).optional(),
+        payerPhone: z.string().min(9).max(20),
+        targetPhone: z.string().max(20).optional(),
+        site: z.string().max(40).optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const { createOrder } = await import("@/lib/services/shop.server");
+    return createOrder({
+      productId: data.productId,
+      amount: data.amount,
+      payerPhone: data.payerPhone,
+      targetPhone: data.targetPhone,
+      siteId: await siteIdFromSlug(data.site),
+    });
+  });
+
+export const getShopOrderStatus = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ orderId: z.string().min(1).max(80) }).parse(data))
+  .handler(async ({ data }) => {
+    const { getOrderStatus } = await import("@/lib/services/shop.server");
+    const o = await getOrderStatus(data.orderId);
+    if (!o) return { ok: false as const };
+    // Only what the customer needs: never other people's numbers beyond the masked recipient.
+    return {
+      ok: true as const,
+      order: {
+        id: o.id,
+        productName: o.productName,
+        kind: o.kind,
+        amount: o.amount,
+        status: o.status,
+        fulfilStatus: o.fulfilStatus,
+        targetPhone: o.targetPhone.slice(0, 5) + "•••" + o.targetPhone.slice(-3),
+        receipt: o.receipt,
+      },
+    };
+  });

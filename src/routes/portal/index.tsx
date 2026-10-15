@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PackageBrowser } from "@/components/portal/package-browser";
+import { ShopLink } from "@/components/portal/shop-link";
 import { PurchaseConsent } from "@/components/portal/legal-footer";
 import { PortalShell, PortalSupportSection } from "@/components/portal/portal-shell";
 import { Button } from "@/components/ui/button";
@@ -120,6 +121,9 @@ function PortalHome() {
         >
           View account
         </Link>
+        <div className="mt-4">
+          <ShopLink />
+        </div>
       </PortalShell>
     );
   }
@@ -131,6 +135,7 @@ function PortalHome() {
       maintenanceMessage={settings.maintenanceMessage}
       footer={
         <div className="flex flex-col gap-2 pb-2 text-center text-sm">
+          <ShopLink />
           <Link to="/portal/recover" className="text-muted hover:text-fg">
             Already paid? Recover my package
           </Link>
